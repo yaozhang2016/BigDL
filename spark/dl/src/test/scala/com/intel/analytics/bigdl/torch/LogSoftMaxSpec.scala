@@ -20,19 +20,13 @@ import com.intel.analytics.bigdl._
 import com.intel.analytics.bigdl.nn.{GradientChecker, LogSoftMax}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.utils.RandomGenerator._
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 import scala.util.Random
 
 @com.intel.analytics.bigdl.tags.Serial
-class LogSoftMaxSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  "A LogSoftMax Module " should "generate correct output and grad with input 2D" in {
+class LogSoftMaxSpec extends TorchSpec {
+    "A LogSoftMax Module " should "generate correct output and grad with input 2D" in {
+    torchCheck()
     val module = new LogSoftMax[Double]()
     Random.setSeed(100)
     val input = Tensor[Double](4, 10).apply1(e => Random.nextDouble())
@@ -61,6 +55,7 @@ class LogSoftMaxSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A LogSoftMax Module " should "generate correct output and grad with input 1D" in {
+    torchCheck()
     val module = new LogSoftMax[Double]()
     Random.setSeed(100)
     val input = Tensor[Double](10).apply1(e => Random.nextDouble())
@@ -89,6 +84,7 @@ class LogSoftMaxSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A LogSoftMax Module " should "generate correct output and grad tiwh input 1*N" in {
+    torchCheck()
     val module = new LogSoftMax[Double]()
     Random.setSeed(100)
     val input = Tensor[Double](1, 10).apply1(e => Random.nextDouble())
@@ -117,6 +113,7 @@ class LogSoftMaxSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "LogSoftMax module" should "be good in gradient check for input" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
     val layer = new LogSoftMax[Double]()
@@ -124,5 +121,33 @@ class LogSoftMaxSpec extends FlatSpec with BeforeAndAfter with Matchers {
 
     val checker = new GradientChecker(1e-4)
     checker.checkLayer[Double](layer, input, 1e-3) should be(true)
+  }
+
+  "LogSoftMax float module" should "return good result" in {
+    torchCheck()
+    val module = new LogSoftMax[Float]()
+    Random.setSeed(100)
+    val input = Tensor[Float](2, 5).apply1(e => Random.nextFloat() + 10)
+    val gradOutput = Tensor[Float](2, 5).apply1(e => Random.nextFloat() + 10)
+
+    val start = System.nanoTime()
+    val output = module.forward(input)
+    val gradInput = module.backward(input, gradOutput)
+    val end = System.nanoTime()
+    val scalaTime = end - start
+
+    val code = "torch.setdefaulttensortype('torch.FloatTensor')" +
+      "module = nn.LogSoftMax()\n" +
+      "output1 = module:forward(input)\n " +
+      "output2 = module:backward(input, gradOutput)"
+
+    val (luaTime, torchResult) = TH.run(code, Map("input" -> input, "gradOutput" -> gradOutput),
+      Array("output1", "output2"))
+    val luaOutput = torchResult("output1").asInstanceOf[Tensor[Float]]
+    val luaGradInput = torchResult("output2").asInstanceOf[Tensor[Float]]
+
+    luaOutput should be(output)
+    luaGradInput should be(gradInput)
+
   }
 }

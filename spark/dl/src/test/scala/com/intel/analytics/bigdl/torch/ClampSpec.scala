@@ -17,20 +17,14 @@ package com.intel.analytics.bigdl.torch
 
 import com.intel.analytics.bigdl.nn.Clamp
 import com.intel.analytics.bigdl.tensor.Tensor
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 import scala.math._
 
 @com.intel.analytics.bigdl.tags.Serial
-class ClampSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  "A Clamp Module " should "generate correct output and grad" in {
-    val module = new Clamp[Double](-10, 10)
+class ClampSpec extends TorchSpec {
+    "A Clamp Module " should "generate correct output and grad" in {
+    torchCheck()
+    val module = new Clamp[Double, Double](-10, 10)
     val input = Tensor[Double](2, 2, 2)
     input(Array(1, 1, 1)) = -0.97008799016476
     input(Array(1, 1, 2)) = -0.89318234380335

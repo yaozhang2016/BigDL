@@ -20,18 +20,13 @@ import com.intel.analytics.bigdl.optim.{L2Regularizer, SGD}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.utils.RandomGenerator._
 import com.intel.analytics.bigdl.utils.T
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 @com.intel.analytics.bigdl.tags.Serial
-class LookupTableSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
+class LookupTableSpec extends TorchSpec {
 
   "LookupTable L2 regularizer" should "works correctly" in {
     import com.intel.analytics.bigdl.numeric.NumericDouble
+    torchCheck()
 
     val state1 = T("learningRate" -> 0.1, "learningRateDecay" -> 5e-7,
       "weightDecay" -> 0.1, "momentum" -> 0.002)
@@ -98,6 +93,7 @@ class LookupTableSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A LookupTableSpec" should "generate correct output and grad with input 1D" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
     val module = LookupTable[Double](9, 4, 2, 0.1, 2.0, true)
@@ -108,7 +104,7 @@ class LookupTableSpec extends FlatSpec with BeforeAndAfter with Matchers {
     input(Array(4)) = 9
     input(Array(5)) = 4
 
-    val gradOutput = Tensor[Double](2, 2, 2)
+    val gradOutput = Tensor[Double](5, 4).rand()
 
     val code = "torch.manualSeed(" + seed + ")\n" +
       "module = nn.LookupTable(9, 4, 2, 0.1)\n" +
@@ -117,7 +113,7 @@ class LookupTableSpec extends FlatSpec with BeforeAndAfter with Matchers {
       "while i < 10 do\n" +
       "output = module:forward(input:int())\n" +
       "module._count:zero()\n" +
-      "_gradInput = module:backward(input:int(), output)\n" +
+      "_gradInput = module:backward(input:int(), gradOutput)\n" +
       "i = i + 1\n" +
       "end\n" +
       "gradInput = _gradInput:double()\n" +
@@ -139,7 +135,7 @@ class LookupTableSpec extends FlatSpec with BeforeAndAfter with Matchers {
     var i = 0
     while (i < 10) {
       output = module.forward(input)
-      gradInput = module.backward(input, output)
+      gradInput = module.backward(input, gradOutput)
       i += 1
     }
     val weight = module.weight
@@ -157,6 +153,7 @@ class LookupTableSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A LookupTableSpec" should "generate correct output and grad with input 2D" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
     val module = LookupTable[Double](10, 3, 3)
@@ -213,6 +210,7 @@ class LookupTableSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A LookupTableSpec" should "generate correct output and grad with max-norm regularization" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
     val module = LookupTable[Double](10, 3, 0, 0.1, 2)

@@ -30,7 +30,7 @@ import scala.reflect.ClassTag
  * @param sizes sizes use for creates a new view
  */
 @SerialVersionUID(1238814703013238333L)
-class View[T: ClassTag](sizes: Array[Int])(
+class View[T: ClassTag](val sizes: Array[Int])(
   implicit ev: TensorNumeric[T]) extends TensorModule[T] {
 
   def getSize(): Array[Int] = {
@@ -45,7 +45,8 @@ class View[T: ClassTag](sizes: Array[Int])(
       if (sizes(i) >= 0) {
         init *= sizes(i)
       } else {
-        require(sizes(i) == -1, "size should be positive or -1")
+        require(sizes(i) == -1, "size should be positive or -1" +
+          s"size ${sizes(i)}")
         require(!inferDim, "only one dimension should be -1")
         inferDim = true
       }
@@ -62,6 +63,8 @@ class View[T: ClassTag](sizes: Array[Int])(
     this
   }
 
+  def getNumInputDims(): Int = numInputDims
+
   private def batchSize(
     input: Tensor[T], size: Array[Int], numberInputDims: Int, numElements: Int): Int = {
     val ind = input.nDimension()
@@ -75,7 +78,8 @@ class View[T: ClassTag](sizes: Array[Int])(
       i -= 1
     }
 
-    require(ine % numElements == 0, "input view doesn't match desired view")
+    require(ine % numElements == 0, "input view doesn't match desired view" +
+      s"inputElemnts $ine numeberofElements $numElements")
 
     var bse = ine / numElements
 
@@ -124,7 +128,7 @@ class View[T: ClassTag](sizes: Array[Int])(
   }
 
   override def toString(): String = {
-    s"nn.View(${sizes.mkString("x")})"
+    s"${getPrintName}(${sizes.mkString("x")})"
   }
 }
 

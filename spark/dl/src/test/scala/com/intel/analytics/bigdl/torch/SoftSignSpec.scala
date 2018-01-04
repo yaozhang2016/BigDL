@@ -18,20 +18,14 @@ package com.intel.analytics.bigdl.torch
 
 import com.intel.analytics.bigdl.nn.SoftSign
 import com.intel.analytics.bigdl.tensor.Tensor
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 import scala.util.Random
 
 @com.intel.analytics.bigdl.tags.Serial
-class SoftSignSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  "A SoftSign 3D input" should "generate correct output and grad" in {
-    val layer = new SoftSign[Double]()
+class SoftSignSpec extends TorchSpec {
+    "A SoftSign 3D input" should "generate correct output and grad" in {
+    torchCheck()
+    val layer = new SoftSign[Double, Double]()
     val input = Tensor[Double](2, 3, 4).apply1(_ => Random.nextDouble())
     val gradOutput = Tensor[Double](2, 3, 4).apply1(_ => Random.nextDouble())
 
@@ -57,7 +51,8 @@ class SoftSignSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A SoftSign 4D input" should "generate correct output and grad" in {
-    val layer = new SoftSign[Double]()
+    torchCheck()
+    val layer = new SoftSign[Double, Double]()
     val input = Tensor[Double](5, 4, 3, 2).apply1(_ => Random.nextDouble())
     val gradOutput = Tensor[Double](5, 4, 3, 2).apply1(_ => Random.nextDouble())
 

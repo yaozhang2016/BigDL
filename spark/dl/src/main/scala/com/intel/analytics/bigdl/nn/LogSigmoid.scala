@@ -54,7 +54,8 @@ class LogSigmoid[T: ClassTag] (implicit ev: TensorNumeric[T])
   }
 
   override def updateGradInput(input: Tensor[T], gradOutput: Tensor[T]): Tensor[T] = {
-    require(input.isSameSizeAs(gradOutput), "input and gradOutput should have the same size")
+    require(input.isSameSizeAs(gradOutput), "input and gradOutput should have the same size" +
+      s"input size ${input.dim()}, gradOutput size ${input.dim()}")
     gradInput
       .resizeAs(buffer)
 
@@ -70,10 +71,6 @@ class LogSigmoid[T: ClassTag] (implicit ev: TensorNumeric[T])
     DenseTensorApply.apply3[T](gradInput, gradOutput, buffer, func)
 
     gradInput
-  }
-
-  override def toString(): String = {
-    s"nn.LogSigmoid"
   }
 }
 

@@ -24,14 +24,14 @@ import org.apache.spark.SparkContext
 
 object TrainInceptionV1 {
   LoggerFilter.redirectSparkInfoLogs()
-  Logger.getLogger("com.intel.analytics.bigdl.optim").setLevel(Level.INFO)
+
 
   import Options._
 
   def main(args: Array[String]): Unit = {
     trainParser.parse(args, new TrainParams()).map(param => {
       val imageSize = 224
-      val conf = Engine.createSparkConf().setAppName("BigDL Inception v1 Train Example")
+      val conf = Engine.createSparkConf().setAppName("BigDL InceptionV1 Train Example")
         .set("spark.task.maxFailures", "1")
       val sc = new SparkContext(conf)
       Engine.init
@@ -59,6 +59,8 @@ object TrainInceptionV1 {
 
       val model = if (param.modelSnapshot.isDefined) {
         Module.load[Float](param.modelSnapshot.get)
+      } else if (param.graphModel) {
+        Inception_v1_NoAuxClassifier.graph(classNum = param.classNumber)
       } else {
         Inception_v1_NoAuxClassifier(classNum = param.classNumber)
       }
@@ -106,6 +108,7 @@ object TrainInceptionV1 {
           valSet, Array(new Top1Accuracy[Float], new Top5Accuracy[Float]))
         .setEndWhen(endTrigger)
         .optimize()
+      sc.stop()
     })
   }
 }

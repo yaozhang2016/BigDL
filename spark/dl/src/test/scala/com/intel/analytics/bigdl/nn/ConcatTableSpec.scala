@@ -16,7 +16,9 @@
 
 package com.intel.analytics.bigdl.nn
 
+import com.intel.analytics.bigdl.nn.abstractnn.Activity
 import com.intel.analytics.bigdl.tensor.{Storage, Tensor}
+import com.intel.analytics.bigdl.numeric.NumericFloat
 import com.intel.analytics.bigdl.utils.T
 import org.scalatest.{FlatSpec, Matchers}
 
@@ -53,5 +55,32 @@ class ConcatTableSpec extends FlatSpec with Matchers {
         Tensor(Storage[Float](Array(0.8f, 0.6f, 0.4f, 0.2f)))
       )
     ))
+  }
+
+  "ConcatTable" should "work properly after clearState()" in {
+    val model = Sequential[Float]()
+    model.add(ConcatTable().add(Identity()).add(Identity()))
+    model.add(ParallelTable().add(Reshape(Array(3, 2))).add(Reshape(Array(3, 2))))
+    model.add(ConcatTable().add(Identity()))
+    val input = Tensor[Float](2, 3)
+    model.forward(input)
+    model.backward(input, model.output)
+
+    model.clearState()
+    model.modules(2).clearState()
+    val input2 = Tensor[Float](2, 3)
+    model.forward(input2)
+    model.backward(input2, model.output)
+  }
+
+  "ConcatTable" should "throw exception when there're no submodules" in {
+    val module = ConcatTable[Activity, Float]()
+    intercept[Exception] {
+      module.forward(T())
+    }
+
+    intercept[Exception] {
+      module.backward(T(), T())
+    }
   }
 }

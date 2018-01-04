@@ -18,8 +18,9 @@ package com.intel.analytics.bigdl.optim
 
 import com.intel.analytics.bigdl.nn.{ConcatTable, Linear}
 import com.intel.analytics.bigdl.tensor.Tensor
-import com.intel.analytics.bigdl.utils.T
+import com.intel.analytics.bigdl.utils.{T, Table}
 import org.scalatest.{FlatSpec, Matchers}
+
 import scala.util.Properties
 
 @com.intel.analytics.bigdl.tags.Parallel
@@ -40,6 +41,12 @@ class TableSpec extends FlatSpec with Matchers {
     t1.hashCode() should not equal t3.hashCode()
     t3.hashCode() should equal (t4.hashCode())
     t4.hashCode() should not equal t5.hashCode()
+  }
+
+  "Test type of Activity" should "be correct" in {
+    val t: Table = T()
+    t.isTensor should be(false)
+    t.isTable should be(true)
   }
 
   "equals()" should "behave correctly" in {
@@ -273,5 +280,12 @@ class TableSpec extends FlatSpec with Matchers {
     val output = module.forward(input)
 
     output.toTable should be(output)
+  }
+
+  "toSeq" should "work correclty" in {
+
+    val t = T(Tensor[Double](T(1.0)), Tensor[Double](T(2.0)))
+
+    t.toSeq[Tensor[Double]] should be (Seq(Tensor[Double](T(1.0)), Tensor[Double](T(2.0))))
   }
 }

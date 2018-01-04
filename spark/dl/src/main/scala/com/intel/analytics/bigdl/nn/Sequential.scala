@@ -16,10 +16,12 @@
 
 package com.intel.analytics.bigdl.nn
 
-import com.intel.analytics.bigdl.nn.abstractnn.{Activity, AbstractModule}
+import com.intel.analytics.bigdl.nn.Graph.ModuleNode
+import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 
 import scala.reflect.ClassTag
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Sequential provides a means to plug layers together
@@ -58,20 +60,19 @@ class Sequential[T: ClassTag]
 
   override def accGradParameters(
     input: Activity,
-    gradOutput: Activity,
-    scale: Double = 1.0): Unit = {
+    gradOutput: Activity): Unit = {
     var i = modules.length - 1
     var currentModule = modules(i)
     var currentGradOutput = gradOutput
     while (i > 0) {
       val previousModule = modules(i - 1)
-      currentModule.accGradParameters(previousModule.output, currentGradOutput, scale)
+      currentModule.accGradParameters(previousModule.output, currentGradOutput)
       currentGradOutput = currentModule.gradInput
       currentModule = previousModule
       i -= 1
     }
 
-    currentModule.accGradParameters(input, currentGradOutput, scale)
+    currentModule.accGradParameters(input, currentGradOutput)
   }
 
   override def backward(input: Activity, nextError: Activity): Activity = {
@@ -133,7 +134,7 @@ class Sequential[T: ClassTag]
   override def toString(): String = {
     val tab = "  "
 
-    s"nn.Sequential {${line + tab}[input -> ${
+    s"${getPrintName}{${line + tab}[input -> ${
       modules.zipWithIndex.map {
         case (m: AbstractModule[Activity, Activity, T], i: Int) => "(" + (i + 1) + ")"
       }.
@@ -148,6 +149,15 @@ class Sequential[T: ClassTag]
       }$line}"
   }
 
+  override def getEndNodes(startNodes: Array[ModuleNode[T]]): Array[ModuleNode[T]] = {
+    var startnodes = startNodes
+    var curNodes: Array[ModuleNode[T]] = null
+    for (i <- 0 to modules.size - 1) {
+      curNodes = modules(i).getEndNodes(startnodes)
+      startnodes = curNodes
+    }
+    curNodes
+  }
 }
 
 object Sequential {

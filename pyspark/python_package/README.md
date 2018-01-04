@@ -21,7 +21,17 @@ In this directory, run this command to create dependency environment package acc
 ```    
     
 After running this script, there will be venv.zip and venv directory generated in current directory. Use them to submit your python jobs. 
-    
+
+__FAQ__
+
+In case you encounter the following errors when you create the environment package using the above command:
+
+1. virtualenv ImportError: No module named urllib3
+    - Using python in anaconda to create virtualenv may cause this problem. Try using python default in your system instead of installing virtualenv in anaconda.
+2. AttributeError: 'module' object has no attribute 'sslwrap'
+    - Try upgrading `gevent` with `pip install --upgrade gevent`.
+
+
 ### Run Lenet example on YARN Cluster mode
 
 Refer to python_submit_yarn_cluster.sh.example to run lenet example on yarn cluster mode. 
@@ -62,7 +72,6 @@ Refer to python_submit_yarn_client.sh.example to run lenet example on yarn clien
     PYTHON_API_PATH=${BigDL_HOME}/dist/lib/bigdl-VERSION-python-api.zip
     BigDL_JAR_PATH=${BigDL_HOME}/dist/lib/bigdl-VERSION-jar-with-dependencies.jar
     PYTHONPATH=${PYTHON_API_PATH}:$PYTHONPATH
-    source ${BigDL_HOME}/dist/bin/bigdl.sh
     # http_proxy=http://...
     PYSPARK_DRIVER_PYTHON=./venv/bin/python PYSPARK_PYTHON=./venv.zip/venv/bin/python ${SPARK_HOME}/bin/spark-submit \
     --master yarn \

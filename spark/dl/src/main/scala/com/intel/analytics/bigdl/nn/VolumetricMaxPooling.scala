@@ -16,14 +16,18 @@
 
 package com.intel.analytics.bigdl.nn
 
-import com.intel.analytics.bigdl.nn.abstractnn.TensorModule
+import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity, TensorModule}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
+import com.intel.analytics.bigdl.utils.serializer._
+import org.codehaus.jackson.map.DeserializationContext
+import serialization.Bigdl.{AttrValue, BigDLModule}
 
 import scala.reflect._
+import scala.reflect.runtime.universe
 
 /**
- * Applies 3D max-pooling operation in kTxkWxkH regions by step size dTxdWxdH steps.
+ * Applies 3D max-pooling operation in kTxkWxkH regions by step size dTxdWxdH.
  * The number of output features is equal to the number of input planes / dT.
  * The input can optionally be padded with zeros. Padding should be smaller than
  * half of kernel size. That is, padT < kT/2, padW < kW/2 and padH < kH/2
@@ -46,7 +50,7 @@ class VolumetricMaxPooling[T: ClassTag](
   (implicit ev: TensorNumeric[T]) extends TensorModule[T] {
 
   var ceilMode = false
-  val indices = Tensor[Float]()
+  private var indices = Tensor[Float]()
 
   def this(kT: Int, kW: Int, kH: Int)(implicit ev: TensorNumeric[T]) {
     this(kT, kW, kH, kT, kW, kH)
@@ -325,7 +329,7 @@ class VolumetricMaxPooling[T: ClassTag](
   }
 
   override def toString(): String = {
-    s"nn.VolumetricMaxPooling($kT, $kW, $kH, $dT, $dW, $dH, $padT, $padW, $padH)"
+    s"${getPrintName}($kT, $kW, $kH, $dT, $dW, $dH, $padT, $padW, $padH)"
   }
 
   override def clearState(): this.type = {
@@ -544,13 +548,44 @@ class VolumetricMaxPooling[T: ClassTag](
   }
 }
 
-object VolumetricMaxPooling {
+object VolumetricMaxPooling extends ModuleSerializable {
   def apply[@specialized(Float, Double) T: ClassTag]
   (kT: Int, kW: Int, kH: Int, dT: Int, dW: Int, dH: Int,
     padT: Int = 0, padW: Int = 0, padH: Int = 0)(implicit ev: TensorNumeric[T])
-  : VolumetricMaxPooling[T] = new VolumetricMaxPooling[T](kT, kW, kH, dT, dW, dH, padT, padW)
+  : VolumetricMaxPooling[T] = new VolumetricMaxPooling[T](kT, kW, kH, dT, dW, dH, padT, padW, padH)
 
   def apply[@specialized(Float, Double) T: ClassTag]
   (kT: Int, kW: Int, kH: Int)(implicit ev: TensorNumeric[T])
   : VolumetricMaxPooling[T] = new VolumetricMaxPooling[T](kT, kW, kH)
+
+  override def doLoadModule[T: ClassTag](context : DeserializeContext)
+    (implicit ev: TensorNumeric[T]) : AbstractModule[Activity, Activity, T] = {
+
+    val maxPooling = super.doLoadModule(context).asInstanceOf[VolumetricMaxPooling[T]]
+    val attrMap = context.bigdlModule.getAttrMap
+    maxPooling.ceilMode = DataConverter.getAttributeValue(context,
+      attrMap.get("ceilMode")).asInstanceOf[Boolean]
+    maxPooling.indices = DataConverter.getAttributeValue(context,
+      attrMap.get("indices")).asInstanceOf[Tensor[Float]]
+    maxPooling
+  }
+
+  override def doSerializeModule[T: ClassTag](context: SerializeContext[T],
+                                            volumetricMaxBuilder : BigDLModule.Builder)
+                                           (implicit ev: TensorNumeric[T]) : Unit = {
+    val maxPooling = context.moduleData.module.asInstanceOf[VolumetricMaxPooling[T]]
+
+    super.doSerializeModule(context, volumetricMaxBuilder)
+
+    val ceilModeBuilder = AttrValue.newBuilder
+    DataConverter.setAttributeValue(context, ceilModeBuilder,
+      maxPooling.ceilMode, universe.typeOf[Boolean])
+    volumetricMaxBuilder.putAttr("ceilMode", ceilModeBuilder.build)
+
+    val indicesBuilder = AttrValue.newBuilder
+    DataConverter.setAttributeValue(context,
+      indicesBuilder, maxPooling.indices, ModuleSerializer.tensorType)
+    volumetricMaxBuilder.putAttr("indices", indicesBuilder.build)
+
+  }
 }

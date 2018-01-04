@@ -20,20 +20,14 @@ import breeze.numerics.abs
 import com.intel.analytics.bigdl.nn.{BatchNormalization, GradientChecker}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.utils.RandomGenerator._
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 import com.intel.analytics.bigdl._
 
 import scala.util.Random
 
 @com.intel.analytics.bigdl.tags.Serial
-class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  "A SpatialBatchNormalization" should "generate correct output and gradInput" in {
+class BatchNormalizationSpec extends TorchSpec {
+    "A SpatialBatchNormalization" should "generate correct output and gradInput" in {
+    torchCheck()
 
     val seed = 100
     RNG.setSeed(seed)
@@ -114,14 +108,11 @@ class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers 
       v1
     })
 
-    gradparametersTorch.map(gradparameters, (v1, v2) => {
-      assert(abs(v1 - v2) == 0)
-      v1
-    })
-
+    gradparametersTorch.almostEqual(gradparameters, 1e-10)
   }
 
   "A SpatialBatchNormalization evaluating" should "generate correct output" in {
+    torchCheck()
 
     val seed = 100
     RNG.setSeed(seed)
@@ -204,7 +195,7 @@ class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers 
 
   "A SpatialBatchNormalization forward backward twice" should
     "generate correct output and gradInput" in {
-
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
 
@@ -268,6 +259,7 @@ class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers 
   }
 
   "BatchNormalization module in batch mode" should "be good in gradient check for input" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
     val sbn = new BatchNormalization[Double](3, 1e-3)
@@ -278,6 +270,7 @@ class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers 
   }
 
   "BatchNormalization module in batch mode" should "be good in gradient check for weight" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
     val sbn = new BatchNormalization[Double](3, 1e-3)
@@ -288,6 +281,7 @@ class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers 
   }
 
   "BatchNormalization updateGradientInput" should "generate correct output and gradInput" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
 
@@ -345,6 +339,7 @@ class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers 
   }
 
   "BatchNormalization updateGradientInput and acc" should "generate correct result" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
 
@@ -404,6 +399,7 @@ class BatchNormalizationSpec extends FlatSpec with BeforeAndAfter with Matchers 
   }
 
   "BatchNormalization affine = false" should "generate correct result" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
 

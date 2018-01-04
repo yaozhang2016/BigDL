@@ -25,11 +25,11 @@ import scala.reflect.ClassTag
 /**
  * Creates a module that takes a Tensor as input and
  * outputs several tables, splitting the Tensor along
- * the specified dimension `dimension`.
+ * the specified dimension `dimension`. Please note the dimension starts from 1.
  *
  * The input to this layer is expected to be a tensor, or a batch of tensors;
  * when using mini-batch, a batch of sample tensors will be passed to the layer and
- * the user need to specify the number of dimensions of each sample tensor in a
+ * the user needs to specify the number of dimensions of each sample tensor in a
  * batch using `nInputDims`.
  *
  * @param dimension to be split along this dimension
@@ -41,8 +41,10 @@ import scala.reflect.ClassTag
 @SerialVersionUID(- 4318640284973082779L)
 class SplitTable[T: ClassTag](
   var dimension: Int,
-  var nInputDims: Int = -1)
-  (implicit ev: TensorNumeric[T]) extends AbstractModule[Tensor[T], Table, T]{
+  var nInputDims: Int = -1,
+  var keepDim: Boolean = false,
+  var contiguousOutput: Boolean = false
+)(implicit ev: TensorNumeric[T]) extends AbstractModule[Tensor[T], Table, T]{
 
   private def getPositiveDimension(input: Tensor[T]): Int = {
     if (dimension < 0) {
@@ -61,7 +63,9 @@ class SplitTable[T: ClassTag](
     val currentOutput = T()
     var i = 1
     while (i <= slices) {
-      currentOutput.insert(input.select(dim, i))
+      val t = input.select(dim, i)
+      if (keepDim) t.addSingletonDimension(t, dim)
+      currentOutput.insert(if (contiguousOutput) t.contiguous() else t)
       i += 1
     }
     output = currentOutput
@@ -109,7 +113,10 @@ class SplitTable[T: ClassTag](
 object SplitTable {
   def apply[@specialized(Float, Double) T: ClassTag](
     dimension: Int,
-    nInputDims: Int = -1)(implicit ev: TensorNumeric[T]) : SplitTable[T] = {
-    new SplitTable[T](dimension, nInputDims)
+    nInputDims: Int = -1,
+    keepDim: Boolean = false,
+    contiguousOutput: Boolean = false
+  )(implicit ev: TensorNumeric[T]) : SplitTable[T] = {
+    new SplitTable[T](dimension, nInputDims, keepDim, contiguousOutput)
   }
 }

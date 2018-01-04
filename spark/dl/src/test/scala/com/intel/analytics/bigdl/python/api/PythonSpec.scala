@@ -17,13 +17,12 @@
 package com.intel.analytics.bigdl.python.api
 
 import java.util
-import java.util.{List => JList, Map => JMap}
+import java.util.{ArrayList => JArrayList, List => JList, Map => JMap}
 
 import com.intel.analytics.bigdl._
 import com.intel.analytics.bigdl.nn._
-import com.intel.analytics.bigdl.optim.SGD
-import com.intel.analytics.bigdl.optim.Trigger
-import com.intel.analytics.bigdl.utils.{Engine, T}
+import com.intel.analytics.bigdl.optim.{Loss, SGD, Top1Accuracy, Trigger}
+import com.intel.analytics.bigdl.utils.{Engine, T, Table, TestUtils}
 import com.intel.analytics.bigdl.visualization.{TrainSummary, ValidationSummary}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.SparkContext
@@ -55,6 +54,15 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
     }
   }
 
+  "pickle activity" should "be test" in {
+    val tensor = Tensor(Array(1.0f, 2.0f, 3.0f, 4.0f), Array(4, 1))
+    val table = new Table()
+    table.insert(tensor)
+    table.insert(tensor)
+    val r = JActivity(table)
+    org.apache.spark.bigdl.api.python.BigDLSerDe.dumps(r)
+  }
+
   "model forward and backward with sigle tensor input" should "be test" in {
     val linear = Linear[Float](4, 5)
     val input: Tensor[Float] = Tensor[Float](4).apply1(_ => Random.nextFloat())
@@ -62,17 +70,21 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
     val pythonBigDL = PythonBigDL.ofFloat()
     val mse = new MSECriterion[Float]
     val joutput = pythonBigDL.modelForward(linear,
-      List(pythonBigDL.toJTensor(input)).asJava
+      List(pythonBigDL.toJTensor(input)).asJava,
+      false
     ).iterator().next()
     val expectedOutput = linear.forward(input)
     require(pythonBigDL.toTensor(joutput) == expectedOutput, "forward output should be the same")
 
     // test backward for linear
+    val loss = mse.forward(pythonBigDL.toTensor(joutput), target)
     val mseGradOutput = mse.backward(pythonBigDL.toTensor(joutput), target).toTensor[Float]
     val expectedLinearGradOutput = linear.backward(input, mseGradOutput)
     val jLinearGradOutput = pythonBigDL.modelBackward(linear,
       List(pythonBigDL.toJTensor(input)).asJava,
-      List(pythonBigDL.toJTensor(mseGradOutput)).asJava
+      false,
+      List(pythonBigDL.toJTensor(mseGradOutput)).asJava,
+      false
     ).iterator().next()
     require(pythonBigDL.toTensor(jLinearGradOutput) == expectedLinearGradOutput,
       "backward output should be the same")
@@ -100,17 +112,17 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
     module.add(linear1)
     module.add(linear2)
 
-    val mapOutput = pythonBigDL.modelForward(module, pythonBigDL.activityToJTensors(input))
-    val mapOutputActivity = pythonBigDL.jTensorsToActivity(mapOutput)
+    val mapOutput = pythonBigDL.modelForward(module, pythonBigDL.activityToJTensors(input), true)
+    val mapOutputActivity = pythonBigDL.jTensorsToActivity(mapOutput, true)
     mapOutputActivity.toTable should equal (expectedOutput)
 
     val expectedGradInput = T(
       linear1.updateGradInput(input(1), gradOutput(1)),
       linear2.updateGradInput(input(2), gradOutput(2)))
     val mapGradInput = pythonBigDL.modelBackward(module,
-      pythonBigDL.activityToJTensors(input),
-      pythonBigDL.activityToJTensors(gradOutput))
-    val mapGradInputActivity = pythonBigDL.jTensorsToActivity(mapGradInput)
+      pythonBigDL.activityToJTensors(input), true,
+      pythonBigDL.activityToJTensors(gradOutput), true)
+    val mapGradInputActivity = pythonBigDL.jTensorsToActivity(mapGradInput, true)
 
     mapGradInputActivity.toTable should equal (expectedGradInput)
 
@@ -136,7 +148,17 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
     require(output == expectedResult)
   }
 
+  "to jtensor with empty tensor" should "be test" in {
+    val pythonBigDL = PythonBigDL.ofFloat()
+    val tensor: Tensor[Float] = Tensor[Float]()
+    val jTensor = pythonBigDL.toJTensor(tensor)
+    println(jTensor.shape)
+    val tensorBack = pythonBigDL.toTensor(jTensor)
+    require(tensorBack == tensor)
+  }
+
   "Double prototype" should "be test" in {
+    TestUtils.cancelOnWindows()
 
     Logger.getLogger("org").setLevel(Level.WARN)
     Logger.getLogger("akka").setLevel(Level.WARN)
@@ -147,13 +169,14 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
     val labelShape = util.Arrays.asList(1)
 
     val data = sc.parallelize(0 to 100).map {i =>
-      Sample(
-        Range(0, 100).toList.map(_ => Random.nextDouble()).asJava.asInstanceOf[JList[Any]],
-        util.Arrays.asList(i % 2 + 1.0d),
-        featuresShape,
-        labelShape,
-        "double"
-      )
+      val label = JTensor(Array(i % 2 + 1.0f), Array(1), "double")
+      val feature = JTensor(Range(0, 100).map(_ => Random.nextFloat()).toArray,
+        Array(100), "double")
+      val features = new JArrayList[JTensor]()
+      features.add(feature)
+      val labels = new JArrayList[JTensor]()
+      labels.add(label)
+      Sample(features, labels, "double")
     }
 
     BigDLSerDe.javaToPython(data.toJavaRDD().asInstanceOf[JavaRDD[Any]])
@@ -173,7 +196,7 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
     val pp = PythonBigDL.ofDouble()
     val optimMethod = new SGD[Double]()
     optimMethod.learningRateSchedule = SGD.Poly(0.5, math.ceil(1281167.toDouble / batchSize).toInt)
-    val optimizer = pp.createOptimizer(
+    val optimizer = pp.createDistriOptimizer(
       model,
       data.toJavaRDD(),
       ClassNLLCriterion[Double](),
@@ -184,7 +207,7 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
       batchSize = batchSize,
       trigger = Trigger.severalIteration(10),
       valRdd = data.toJavaRDD(),
-      vMethods = util.Arrays.asList("Top1Accuracy", "Loss"))
+      vMethods = util.Arrays.asList(new Top1Accuracy(), new Loss()))
 
     val logdir = com.google.common.io.Files.createTempDir()
     val trainSummary = TrainSummary(logdir.getPath, "lenet")
@@ -207,28 +230,62 @@ class PythonSpec extends FlatSpec with Matchers with BeforeAndAfter {
 
     val localData = data.collect()
     pp.toTensor(preResult.get(0)) should be
-    (trainedModel.forward(pp.toSample(localData(0)).feature()))
+    (trainedModel.forward(pp.toJSample(localData(0)).feature))
 
     pp.toTensor(preResult.get(25)) should be
-    (trainedModel.forward(pp.toSample(localData(25)).feature()))
+    (trainedModel.forward(pp.toJSample(localData(25)).feature))
 
     pp.toTensor(preResult.get(55)) should be
-    (trainedModel.forward(pp.toSample(localData(55)).feature()))
+    (trainedModel.forward(pp.toJSample(localData(55)).feature))
 
     pp.toTensor(preResult.get(75)) should be
-    (trainedModel.forward(pp.toSample(localData(75)).feature()))
+    (trainedModel.forward(pp.toJSample(localData(75)).feature))
 
-
-    val resultRDD = pp.predict(trainedModel, data.map(pp.toSample(_)))
-    val result = resultRDD.take(5)
-    println(result)
     // TODO: verify the parameters result
     val parameters = pp.modelGetParameters(trainedModel)
 //    println(parameters)
-    val testResult = pp.modelTest(trainedModel,
+    val testResult = pp.modelEvaluate(trainedModel,
       data.toJavaRDD(),
       batchSize = 32,
-      valMethods = util.Arrays.asList("Top1Accuracy"))
+      valMethods = util.Arrays.asList(new Top1Accuracy()))
     println(testResult)
   }
+
+  "local optimizer" should "be test" in {
+
+    TestUtils.cancelOnWindows()
+
+    Logger.getLogger("org").setLevel(Level.WARN)
+    Logger.getLogger("akka").setLevel(Level.WARN)
+
+    import collection.JavaConverters._
+
+    val featuresShape = util.Arrays.asList(100)
+    val labelShape = util.Arrays.asList(1)
+    val pp = PythonBigDL.ofDouble()
+
+    val X = pp.toJTensor(Tensor[Double](Array(100, 100)).randn())
+    val y = pp.toJTensor(Tensor[Double](Array(100, 1)).zero().add(1))
+
+    val model = Sequential[Double]()
+    model.add(Linear[Double](100, 10))
+    model.add(ReLU[Double]())
+    model.add(LogSoftMax[Double]())
+    val batchSize = 32
+    val optimMethod = new SGD[Double]()
+    val optimizer = pp.createLocalOptimizer(
+      List(X).asJava,
+      y,
+      model,
+      ClassNLLCriterion[Double](),
+      optimMethod,
+      Trigger.maxEpoch(2),
+      32,
+      2)
+    val trainedModel = optimizer.optimize()
+    val predictedResult = pp.predictLocal(
+      trainedModel, List(pp.toJTensor(Tensor[Double](Array(34, 100)).randn())).asJava)
+    println(predictedResult)
+  }
+
 }

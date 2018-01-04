@@ -23,7 +23,7 @@ import com.intel.analytics.bigdl.utils.Table
  * and a corresponding action will be taken when the timespot(s)
  * is reached.
  */
-trait Trigger {
+trait Trigger extends Serializable {
   def apply(state: Table): Boolean
 }
 
@@ -96,6 +96,30 @@ object Trigger {
     new Trigger() {
       override def apply(state: Table): Boolean = {
         state[Int]("neval") > max
+      }
+    }
+  }
+
+  /**
+   * A trigger that triggers an action when validation score larger than "max" score
+   * @param max max score
+   */
+  def maxScore(max: Float): Trigger = {
+    new Trigger() {
+      override def apply(state: Table): Boolean = {
+        state[Float]("score") > max
+      }
+    }
+  }
+
+  /**
+   * A trigger that triggers an action when training loss less than "min" loss
+   * @param min min loss
+   */
+  def minLoss(min: Float): Trigger = {
+    new Trigger() {
+      override def apply(state: Table): Boolean = {
+        state[Float]("Loss") < min
       }
     }
   }

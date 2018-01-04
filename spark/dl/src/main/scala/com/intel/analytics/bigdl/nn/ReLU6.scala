@@ -23,31 +23,36 @@ import scala.reflect.ClassTag
 /**
  * Same as ReLU except that the rectifying function f(x) saturates at x = 6
  * ReLU6 is defined as:
- * f(x) = min(max(0, x), 6)
+ * `f(x) = min(max(0, x), 6)`
  *
  * @param inplace either true = in-place or false = keeping separate state
  */
 
 @SerialVersionUID(8169462538025916360L)
-class ReLU6[T: ClassTag](inplace: Boolean = false)
-  (implicit ev: TensorNumeric[T]) extends HardTanh[T](0, 6, inplace) {
+class ReLU6[T: ClassTag, D: ClassTag](inplace: Boolean = false)
+  (implicit ev: TensorNumeric[T], ev2: TensorNumeric[D])
+  extends HardTanh[T, D](0, 6, inplace) {
 
-  override def updateOutput(input: Tensor[T]): Tensor[T] = {
+  override def updateOutput(input: Tensor[D]): Tensor[D] = {
     super.updateOutput(input)
   }
 
-  override def updateGradInput(input: Tensor[T], gradOutput: Tensor[T]): Tensor[T] = {
+  override def updateGradInput(input: Tensor[D], gradOutput: Tensor[D]): Tensor[D] = {
     super.updateGradInput(input, gradOutput)
   }
 
-  override def toString(): String = {
-    s"nn.ReLU6"
+  override def clearState(): this.type = {
+    if (!inplace) {
+      super.clearState()
+    }
+    this
   }
 }
 
 object ReLU6 {
-  def apply[@specialized(Float, Double) T: ClassTag](
-      inplace: Boolean = false)(implicit ev: TensorNumeric[T]) : ReLU6[T] = {
-    new ReLU6[T]()
+  def apply[@specialized(Float, Double) T: ClassTag, D: ClassTag](
+      inplace: Boolean = false)
+      (implicit ev: TensorNumeric[T], ev2: TensorNumeric[D]): ReLU6[T, D] = {
+    new ReLU6[T, D]()
   }
 }

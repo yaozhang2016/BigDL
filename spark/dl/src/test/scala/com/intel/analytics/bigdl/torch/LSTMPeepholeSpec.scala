@@ -19,17 +19,21 @@ package com.intel.analytics.bigdl.torch
 import java.io.PrintWriter
 
 import com.intel.analytics.bigdl.nn._
+import com.intel.analytics.bigdl.nn.abstractnn.Activity
 import com.intel.analytics.bigdl.optim.SGD
-import com.intel.analytics.bigdl.tensor.Tensor
+import com.intel.analytics.bigdl.tensor.{Storage, Tensor}
 import com.intel.analytics.bigdl.utils.RandomGenerator._
-import com.intel.analytics.bigdl.utils.T
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
+import com.intel.analytics.bigdl.utils.TorchObject.TYPE_DOUBLE_TENSOR
+import com.intel.analytics.bigdl.utils.{T, Table, TorchFile}
 
+import scala.collection.mutable.ArrayBuffer
+import scala.math._
+import scala.reflect.ClassTag
 import scala.sys.process._
 
-@com.intel.analytics.bigdl.tags.Parallel
-class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
+@com.intel.analytics.bigdl.tags.Serial
+class LSTMPeepholeSpec  extends TorchSpec {
+  override def torchCheck(): Unit = {
     if (!TH.hasTorch()) {
       cancel("Torch is not installed")
     }
@@ -45,7 +49,43 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     }
   }
 
+  "A LSTMPeephole" should " be fast" in {
+    val inputSize = 300
+    val hiddenSize = 300
+    val batchSize = 12
+    val time = 200
+    val seed = 100
+    RNG.setSeed(seed)
+    val input = Tensor[Float](batchSize, time, inputSize).rand
+    val gradOutput = Tensor[Float](batchSize, time, hiddenSize).rand
+
+    val model = Recurrent[Float]()
+        .add(LSTMPeephole[Float](inputSize, hiddenSize))
+
+    var startTime = System.nanoTime()
+    var duration = (System.nanoTime() - startTime) / 1e9
+    var sum = 0.0
+
+    println("warmup ..")
+    for (i <- 1 to 5) {
+      model.forward(input)
+      model.backward(input, gradOutput)
+    }
+
+    val n = 5
+    for (i <- 1 to n) {
+      startTime = System.nanoTime()
+      model.forward(input)
+      model.backward(input, gradOutput)
+      duration = (System.nanoTime() - startTime) / 1e9
+      sum += duration
+      println(s"iteration-${i}, elapsed time = ${duration}")
+    }
+    println(s"average elapsed time = ${sum / n}")
+  }
+
   "A LSTMPeepwhole " should "has same loss as torch rnn" in {
+    torchCheck()
 
     import com.intel.analytics.bigdl.numeric.NumericDouble
     val hiddenSize = 4
@@ -69,7 +109,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     }
 
     println(input)
-    val rec = Recurrent[Double](hiddenSize)
+    val rec = Recurrent[Double]()
 
     val model = Sequential[Double]()
       .add(rec
@@ -84,6 +124,18 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     val logSoftMax = TimeDistributed[Double](LogSoftMax[Double]())
 
     val (weights, grad) = model.getParameters()
+
+    /*
+     * Since we changed the structure of LSTMPeephole, we have to rearrange the parameters.
+     */
+
+    val parametersTable = model.getParametersTable()
+
+    val (weightsArray, gradArray) = model.parameters()
+    val weightsArrayTorch = weightsArray.clone
+    val weightsTorch = reconstruct(weightsArrayTorch, hiddenSize)
+
+    val weights2Torch = Module.flatten[Double](weightsTorch)
 
     val code =
       s"""
@@ -159,7 +211,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     """.stripMargin
 
     val (luaTime, torchResult) = TH.run(code,
-      Map("input" -> input.transpose(1, 2), "weights" -> weights,
+      Map("input" -> input.transpose(1, 2), "weights" -> weights2Torch,
         "labels" -> SplitTable[Double](1).forward(labels.t())),
       Array("output", "err", "parameters", "gradParameters", "output2", "gradInput", "err2"))
 
@@ -218,6 +270,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
 
 
   "A LSTMPeepwhole " should "converge" in {
+    torchCheck()
 
     import com.intel.analytics.bigdl.numeric.NumericDouble
     val hiddenSize = 4
@@ -238,7 +291,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     }
 
     println(input)
-    val rec = Recurrent[Double](hiddenSize)
+    val rec = Recurrent[Double]()
 
     val model = Sequential[Double]()
       .add(rec
@@ -281,6 +334,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
 
 
   "A LSTMPeepwhole " should "has same loss as torch rnn in batch mode" in {
+    torchCheck()
 
     import com.intel.analytics.bigdl.numeric.NumericFloat
     val hiddenSize = 4
@@ -304,7 +358,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     }
 
     println(input)
-    val rec = Recurrent(hiddenSize)
+    val rec = Recurrent()
 
     val model = Sequential()
       .add(rec
@@ -316,6 +370,18 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     val logSoftMax = TimeDistributed(LogSoftMax())
 
     val (weights, grad) = model.getParameters()
+
+
+    /*
+     * Since we changed the structure of LSTMPeephole, we have to rearrange the parameters.
+     */
+    val (weightsArray, gradArray) = model.parameters()
+    val weightsArrayTorch = weightsArray.clone
+
+    val weightsTorch = reconstruct(weightsArrayTorch, hiddenSize)
+
+    val weights2Torch = Module.flatten[Float](weightsTorch)
+
 
     val code =
       s"""
@@ -383,7 +449,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     scala.Seq
 
     val (luaTime, torchResult) = TH.run(code,
-      Map("input" -> input.transpose(1, 2), "weights" -> weights,
+      Map("input" -> input.transpose(1, 2), "weights" -> weights2Torch,
         "labels" -> SplitTable[Double](1).forward(labels.t())),
       Array("output", "err", "parameters", "gradParameters", "output2", "gradInput", "err2"))
 
@@ -451,6 +517,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
 
 
   "A LSTMPeepwhole " should "converge in batch mode" in {
+    torchCheck()
 
     import com.intel.analytics.bigdl.numeric.NumericDouble
     val hiddenSize = 4
@@ -474,7 +541,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     }
 
     println(input)
-    val rec = Recurrent[Double](hiddenSize)
+    val rec = Recurrent[Double]()
 
     val model = Sequential[Double]()
       .add(rec
@@ -516,6 +583,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A LSTMPeepwhole " should "perform correct gradient check" in {
+    torchCheck()
 
     val hiddenSize = 4
     val inputSize = 5
@@ -525,7 +593,7 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     RNG.setSeed(seed)
 
     val model = Sequential[Double]()
-      .add(Recurrent[Double](hiddenSize)
+      .add(Recurrent[Double]()
         .add(LSTMPeephole[Double](inputSize, hiddenSize)))
       .add(Select(1, 1))
       .add(Linear[Double](hiddenSize, outputSize))
@@ -547,5 +615,205 @@ class LSTMPeepholeSpec  extends FlatSpec with BeforeAndAfter with Matchers {
     println("gradient check for weights")
     val gradCheck = new GradientCheckerRNN(1e-2, 1)
     val checkFlag = gradCheck.checkLayer(model, input, labels)
+  }
+
+  "A LSTMPeepwhole " should "get hiddenState correctly" in {
+    torchCheck()
+
+    import com.intel.analytics.bigdl.numeric.NumericDouble
+    val hiddenSize = 4
+    val inputSize = 6
+    val seqLength = 5
+    val seed = 100
+    val batchSize = 5
+
+    RNG.setSeed(seed)
+    val input = Tensor[Double](batchSize, seqLength, inputSize).rand
+    val gradOutput = Tensor[Double](batchSize, seqLength, hiddenSize).rand
+
+    val rec = Recurrent()
+
+    val model = Sequential()
+      .add(rec
+        .add(LSTMPeephole(inputSize, hiddenSize)))
+
+    val (weights, grad) = model.getParameters()
+
+    /*
+     * Since we changed the structure of LSTMPeephole, we have to rearrange the parameters.
+     */
+    val (weightsArray, gradArray) = model.parameters()
+    val weightsArrayTorch = weightsArray.clone
+    val weightsTorch = reconstruct(weightsArrayTorch, hiddenSize)
+
+    val weights2Torch = Module.flatten[Double](weightsTorch)
+
+    val code =
+      s"""
+         |
+      |-- 1.4. Combine 1.1 and 1.3 to produce final model
+         |require 'rnn'
+         |torch.manualSeed($seed)
+         |
+         |local lstm = nn.LSTM($inputSize, $hiddenSize, 1, true)
+      |model = nn.Sequencer(
+         | nn.Sequential()
+         |   :add(lstm))
+         |
+         |local parameters, gradParameters = model:getParameters()
+         |parameters:copy(weights)
+      |local output = model:forward(input)
+      |local gradInput = model:backward(input, gradOutput)
+      |local state = lstm:getHiddenState($seqLength)
+    """.stripMargin
+    scala.Seq
+
+    val (luaTime, torchResult) = TH.run(code,
+      Map("input" -> input.transpose(1, 2), "weights" -> weights2Torch,
+        "gradOutput" -> gradOutput.transpose(1, 2)), Array("output", "state"))
+
+    val luaOutput = torchResult("output").asInstanceOf[Tensor[Double]]
+    val luaState = torchResult("state").asInstanceOf[Table]
+
+    val output = model.forward(input).toTensor.transpose(1, 2)
+    model.backward(input, gradOutput)
+
+    rec.getHiddenState().toTable.foreach { case ((key: Int, value: Tensor[Double])) =>
+      value.map(luaState(key), (v1, v2) => {
+        assert(abs(v1 - v2) <= 1e-8)
+        v1
+      })
+    }
+
+    luaOutput.map(output, (v1, v2) => {
+      assert(abs(v1 - v2) <= 1e-8)
+      v1
+    })
+  }
+
+  "A LSTMPeepwhole " should "set hiddenState correctly" in {
+    torchCheck()
+
+    import com.intel.analytics.bigdl.numeric.NumericDouble
+    val hiddenSize = 4
+    val inputSize = 6
+    val seqLength = 5
+    val seed = 100
+    val batchSize = 5
+
+    RNG.setSeed(seed)
+    val input = Tensor[Double](batchSize, seqLength, inputSize).rand
+    val state = T(Tensor[Double](batchSize, hiddenSize).rand,
+      Tensor[Double](batchSize, hiddenSize).rand)
+    val gradOutput = Tensor[Double](batchSize, seqLength, hiddenSize).rand
+    val rec = Recurrent()
+    rec.setHiddenState(state)
+    val model = Sequential()
+      .add(rec
+        .add(LSTMPeephole(inputSize, hiddenSize)))
+
+    val weights = model.getParameters()._1.clone()
+    model.zeroGradParameters()
+
+    /*
+     * Since we changed the structure of LSTMPeephole, we have to rearrange the parameters.
+     */
+    val (weightsArray, gradArray) = model.parameters()
+    val weightsArrayTorch = weightsArray.clone
+    val weightsTorch = reconstruct(weightsArrayTorch, hiddenSize)
+
+    val weights2Torch = Module.flatten[Double](weightsTorch)
+
+    val code =
+      s"""
+         |
+      |-- 1.4. Combine 1.1 and 1.3 to produce final model
+         |require 'rnn'
+         |torch.manualSeed($seed)
+         |
+         |local lstm = nn.LSTM($inputSize, $hiddenSize, 1, true)
+         |model = nn.Sequencer(
+         | nn.Sequential()
+         |   :add(lstm))
+         |
+         |local parameters, gradParameters = model:getParameters()
+         |lstm.userPrevOutput = state[1]
+         |lstm.userPrevCell = state[2]
+         |parameters:copy(weights)
+         |local output = model:forward(input)
+         |local gradInput = model:backward(input, gradOutput)
+    """.stripMargin
+    scala.Seq
+
+    val (luaTime, torchResult) = TH.run(code,
+      Map("input" -> input.transpose(1, 2), "weights" -> weights2Torch, "state" -> state,
+        "gradOutput" -> gradOutput.transpose(1, 2)),
+      Array("output", "gradInput", "gradParameters"))
+
+    val luaOutput = torchResult("output").asInstanceOf[Tensor[Double]]
+    val luaGradInput = torchResult("gradInput").asInstanceOf[Tensor[Double]]
+    val luagradParameters = torchResult("gradParameters").asInstanceOf[Tensor[Double]]
+
+    val output = model.forward(input).toTensor
+    val gradInput = model.backward(input, gradOutput).toTensor
+
+    luaOutput.map(output.transpose(1, 2), (v1, v2) => {
+      assert(abs(v1 - v2) <= 1e-8)
+      v1
+    })
+    luaGradInput.map(gradInput.transpose(1, 2), (v1, v2) => {
+      assert(abs(v1 - v2) <= 1e-8)
+      v1
+    })
+
+    val (weightAfter, gradAfter) = model.parameters()
+    val gradsArrayTorchAfter = gradAfter.clone
+
+    val grad2TorchAfter =
+      Module.flatten[Double](reconstruct[Double](gradsArrayTorchAfter, hiddenSize))
+    luagradParameters.map(grad2TorchAfter, (v1, v2) => {
+      assert(abs(v1 - v2) <= 1e-8)
+      v1
+    })
+  }
+
+  private def reconstruct[T: ClassTag](tensor: Array[Tensor[T]], hiddenSize: Int):
+    Array[Tensor[T]] = {
+    val weightsTorchAfter = new ArrayBuffer[Tensor[T]]()
+
+    val i2g2After = tensor(0).narrow(1, 1 + hiddenSize, hiddenSize)
+    weightsTorchAfter += i2g2After.clone()
+    val i2g2biasAfter = tensor(1).narrow(1, 1 + hiddenSize, hiddenSize)
+    weightsTorchAfter += i2g2biasAfter.clone()
+    weightsTorchAfter += tensor(3).clone()
+    weightsTorchAfter += tensor(2).clone()
+    val i2g1After = tensor(0).narrow(1, 1, hiddenSize)
+    weightsTorchAfter += i2g1After.clone()
+    val i2g1biasAfter = tensor(1).narrow(1, 1, hiddenSize)
+    weightsTorchAfter += i2g1biasAfter.clone()
+    weightsTorchAfter += tensor(5).clone()
+    weightsTorchAfter += tensor(4).clone()
+
+    val i2g3After = tensor(0).narrow(1, 1 + 2 * hiddenSize, hiddenSize)
+    weightsTorchAfter += i2g3After.clone()
+    val i2g3biasAfter = tensor(1).narrow(1, 1 + 2 * hiddenSize, hiddenSize)
+    weightsTorchAfter += i2g3biasAfter.clone()
+
+    weightsTorchAfter += tensor(6).clone()
+
+    val i2g4After = tensor(0).narrow(1, 1 + 3 * hiddenSize, hiddenSize)
+    weightsTorchAfter += i2g4After.clone()
+    val i2g4biasAfter = tensor(1).narrow(1, 1 + 3 * hiddenSize, hiddenSize)
+    weightsTorchAfter += i2g4biasAfter.clone()
+
+    if (tensor.length > 8) {
+      weightsTorchAfter += tensor(8).clone()
+      weightsTorchAfter += tensor(7).clone()
+    }
+    if (tensor.length > 10) {
+      weightsTorchAfter += tensor(9).clone()
+      weightsTorchAfter += tensor(10).clone()
+    }
+    weightsTorchAfter.toArray
   }
 }

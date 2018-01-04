@@ -18,18 +18,12 @@ package com.intel.analytics.bigdl.torch
 
 import com.intel.analytics.bigdl.nn.Transpose
 import com.intel.analytics.bigdl.tensor.Tensor
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 import scala.math._
 
-class TransposeSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  "A Transpose Module " should "generate correct output and grad" in {
+class TransposeSpec extends TorchSpec {
+    "A Transpose Module " should "generate correct output and grad" in {
+    torchCheck()
     val module = new Transpose[Double](Array((1, 3)))
     val input = Tensor[Double](2, 2, 2)
     input(Array(1, 1, 1)) = -0.17020166106522
@@ -65,11 +59,11 @@ class TransposeSpec extends FlatSpec with BeforeAndAfter with Matchers {
     val luaOutput1 = torchResult("output").asInstanceOf[Tensor[Double]]
     val luaOutput2 = torchResult("gradInput").asInstanceOf[Tensor[Double]]
 
-    luaOutput1.map(output, (v1, v2) => {
+    luaOutput1.map(output.asInstanceOf[Tensor[Double]], (v1, v2) => {
       assert(abs(v1 - v2) < 1e-6);
       v1
     })
-    luaOutput2.map(gradInput, (v1, v2) => {
+    luaOutput2.map(gradInput.asInstanceOf[Tensor[Double]], (v1, v2) => {
       assert(abs(v1 - v2) < 1e-6);
       v1
     })
@@ -78,6 +72,7 @@ class TransposeSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A Transpose Module with mutiple tuples" should "generate correct output and grad" in {
+    torchCheck()
     val module = new Transpose[Double](Array((1, 3), (2, 3)))
     val input = Tensor[Double](2, 2, 2)
     input(Array(1, 1, 1)) = -0.17020166106522
@@ -113,11 +108,11 @@ class TransposeSpec extends FlatSpec with BeforeAndAfter with Matchers {
     val luaOutput1 = torchResult("output").asInstanceOf[Tensor[Double]]
     val luaOutput2 = torchResult("gradInput").asInstanceOf[Tensor[Double]]
 
-    luaOutput1.map(output, (v1, v2) => {
+    luaOutput1.map(output.asInstanceOf[Tensor[Double]], (v1, v2) => {
       assert(abs(v1 - v2) < 1e-6);
       v1
     })
-    luaOutput2.map(gradInput, (v1, v2) => {
+    luaOutput2.map(gradInput.asInstanceOf[Tensor[Double]], (v1, v2) => {
       assert(abs(v1 - v2) < 1e-6);
       v1
     })

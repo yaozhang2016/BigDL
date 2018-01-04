@@ -15,7 +15,7 @@
  */
 package com.intel.analytics.bigdl.nn
 
-import com.intel.analytics.bigdl.nn.abstractnn.TensorModule
+import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, TensorModule}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 
@@ -36,18 +36,25 @@ import scala.reflect.ClassTag
  *                   If it is more than the dimension of input tensors, the first dimension
  *                   would be considered as batch size
  * @param sizeAverage default is false, if it is true, it will return the mean instead
+ * @param squeeze default is true, which will squeeze the sum dimension; set it to false to keep
+ *                the sum dimension
  */
 
 @SerialVersionUID(- 8025422596092583688L)
-class Sum[T: ClassTag](
-  dimension: Int = 1,
+class Sum[T: ClassTag, D: ClassTag](
+  private var dimension: Int = 1,
   nInputDims: Int = -1,
-  sizeAverage: Boolean = false)
-  (implicit ev: TensorNumeric[T]) extends TensorModule[T] {
+  sizeAverage: Boolean = false,
+  squeeze: Boolean = true)
+  (implicit ev: TensorNumeric[T], evd: TensorNumeric[D])
+  extends AbstractModule[Tensor[D], Tensor[D], T] {
   @transient
-  private var _gradOutput: Tensor[T] = null
+  private var _gradOutput: Tensor[D] = null
 
-  private def getPositiveDimension(input: Tensor[T]): Int = {
+  output = Tensor[D]()
+  gradInput = Tensor[D]()
+
+  private def getPositiveDimension(input: Tensor[D]): Int = {
     var dimension = this.dimension
     if (dimension < 0) {
       dimension = input.dim() + dimension + 1
@@ -57,25 +64,36 @@ class Sum[T: ClassTag](
       dimension += 1
     }
 
-    require(input.dim() >= dimension, "dimension exceeds input dimensions")
+    require(input.dim() >= dimension, "dimension exceeds input dimensions" +
+      s"dimension $dimension, input dimension ${input.dim()}")
     dimension
   }
 
-  override def updateOutput(input: Tensor[T]): Tensor[T] = {
+  def changeSumDims(d: Int): this.type = {
+    dimension = d
+    this
+  }
+
+  override def updateOutput(input: Tensor[D]): Tensor[D] = {
     val dimension = getPositiveDimension(input)
     output.sum(input, dimension)
 
     if (sizeAverage) {
-      output.div(ev.fromType[Int](input.size(dimension)))
+      output.div(evd.fromType(input.size(dimension)))
     }
-    if (output.nDimension() > 1) {
-      output.set(output.select(dimension, 1))
+
+    if (output.nDimension() > 1 && squeeze) {
+      output.squeeze(dimension)
+    }
+
+    if (output.nElement() == 1 && squeeze) {
+      output = Tensor.scalar[D](output.storage.apply(output.storageOffset() - 1))
     }
 
     output
   }
 
-  override def updateGradInput(input: Tensor[T], gradOutput: Tensor[T]): Tensor[T] = {
+  override def updateGradInput(input: Tensor[D], gradOutput: Tensor[D]): Tensor[D] = {
     val dimension = getPositiveDimension(input)
     val size = input.size()
     size(dimension - 1) = 1
@@ -88,19 +106,25 @@ class Sum[T: ClassTag](
     gradInput.resizeAs(input)
     gradInput.copy(_gradOutput.expandAs(input))
     if (sizeAverage) {
-      gradInput.div(ev.fromType[Int](input.size(dimension)))
+      gradInput.div(evd.fromType(input.size(dimension)))
     }
     gradInput
+  }
+
+  override def getClassTagNumerics() : (Array[ClassTag[_]], Array[TensorNumeric[_]]) = {
+    (Array[ClassTag[_]](scala.reflect.classTag[T], scala.reflect.classTag[D]),
+      Array[TensorNumeric[_]](ev, evd))
   }
 
   override def toString: String = s"nn.Sum"
 }
 
 object Sum {
-  def apply[@specialized(Float, Double) T: ClassTag](
-      dimension: Int = 1,
-      nInputDims: Int = -1,
-      sizeAverage: Boolean = false)(implicit ev: TensorNumeric[T]) : Sum[T] = {
-    new Sum[T](dimension, nInputDims, sizeAverage)
+  def apply[T: ClassTag, D: ClassTag](
+    dimension: Int = 1,
+    nInputDims: Int = -1,
+    sizeAverage: Boolean = false,
+    squeeze: Boolean = true)(implicit ev: TensorNumeric[T], evd: TensorNumeric[D]) : Sum[T, D] = {
+    new Sum[T, D](dimension, nInputDims, sizeAverage, squeeze)
   }
 }

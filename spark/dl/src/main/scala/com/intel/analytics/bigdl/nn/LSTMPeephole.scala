@@ -16,7 +16,8 @@
 
 package com.intel.analytics.bigdl.nn
 
-import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
+import com.intel.analytics.bigdl.nn.Graph.ModuleNode
+import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity, TensorModule}
 import com.intel.analytics.bigdl.optim.Regularizer
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
@@ -51,134 +52,166 @@ class LSTMPeephole[T : ClassTag] (
   val inputSize: Int,
   val hiddenSize: Int,
   val p: Double = 0.0,
-  val wRegularizer: Regularizer[T] = null,
-  val uRegularizer: Regularizer[T] = null,
-  val bRegularizer: Regularizer[T] = null
+  var wRegularizer: Regularizer[T] = null,
+  var uRegularizer: Regularizer[T] = null,
+  var bRegularizer: Regularizer[T] = null
 )
   (implicit ev: TensorNumeric[T])
   extends Cell[T](
     hiddensShape = Array(hiddenSize, hiddenSize),
     regularizers = Array(wRegularizer, uRegularizer, bRegularizer)
   ) {
-  var inputGate: Sequential[T] = _
-  var forgetGate: Sequential[T] = _
-  var outputGate: Sequential[T] = _
-  var hiddenLayer: Sequential[T] = _
-  var cellLayer: Sequential[T] = _
-  override var cell: AbstractModule[Activity, Activity, T] = buildLSTM()
+  var inputGate: ModuleNode[T] = _
+  var forgetGate: ModuleNode[T] = _
+  var outputGate: ModuleNode[T] = _
+  var hiddenLayer: ModuleNode[T] = _
+  var cellLayer: ModuleNode[T] = _
+  val featDim = 2
 
-  def buildGate(): Sequential[T] = {
-    val gate = Sequential()
+  override var cell: AbstractModule[Activity, Activity, T] =
+    Sequential()
+      .add(FlattenTable())
+      .add(buildLSTM())
+      .add(ConcatTable()
+        .add(SelectTable(1))
+        .add(NarrowTable(2, 2)))
 
-    val i2g = Sequential()
-      .add(Dropout(p))
-      .add(Linear(inputSize, hiddenSize, wRegularizer = wRegularizer,
-        bRegularizer = bRegularizer))
-    val h2g = Sequential()
-      .add(Dropout(p))
-      .add(Linear(hiddenSize, hiddenSize,
-        withBias = false, wRegularizer = uRegularizer))
-
-    gate
-      .add(ParallelTable()
-        .add(i2g)
-        .add(h2g)
-        .add(CMul(Array(hiddenSize))))
-      .add(CAddTable())
-      .add(Sigmoid())
+  override var preTopology: TensorModule[T] = if (p != 0) {
+    null
+  } else {
+    Linear(inputSize, 4 * hiddenSize,
+      wRegularizer = wRegularizer, bRegularizer = bRegularizer)
   }
 
-  def buildInputGate(): Sequential[T] = {
-    inputGate = buildGate()
+  override def hiddenSizeOfPreTopo: Int = hiddenSize * 4
+
+  def buildGate(dimension: Int, offset: Int, length: Int)
+               (input1: ModuleNode[T], input2: ModuleNode[T], input3: ModuleNode[T])
+  : ModuleNode[T] = {
+
+    /**
+     * f(input1 + U * input2)
+     */
+    var i2g: ModuleNode[T] = null
+    var h2g: ModuleNode[T] = null
+    if (p != 0) {
+      val input1Drop = Dropout(p).inputs(input1)
+      i2g = Linear(inputSize, hiddenSize, wRegularizer = wRegularizer,
+              bRegularizer = bRegularizer).inputs(input1Drop)
+      val input2Drop = Dropout(p).inputs(input2)
+      h2g = Linear(hiddenSize, hiddenSize, withBias = false,
+          wRegularizer = uRegularizer).inputs(input2Drop)
+    } else {
+      i2g = Narrow(dimension, offset, length).inputs(input1)
+      h2g = Linear(hiddenSize, hiddenSize,
+        withBias = false, wRegularizer = uRegularizer).inputs(input2)
+    }
+    val cMul = CMul(Array(hiddenSize)).inputs(input3)
+
+    val cadd = CAddTable().inputs(i2g, h2g, cMul)
+    val sigmoid = Sigmoid().inputs(cadd)
+
+    sigmoid
+  }
+
+  def buildInputGate()
+                    (input1: ModuleNode[T], input2: ModuleNode[T], input3: ModuleNode[T])
+  : ModuleNode[T] = {
+    inputGate = buildGate(featDim, 1, hiddenSize)(input1, input2, input3)
     inputGate
   }
 
-  def buildForgetGate(): Sequential[T] = {
-    forgetGate = buildGate()
+  def buildForgetGate()
+                     (input1: ModuleNode[T], input2: ModuleNode[T], input3: ModuleNode[T])
+  : ModuleNode[T] = {
+    forgetGate =
+      buildGate(featDim, 1 + hiddenSize, hiddenSize)(input1, input2, input3)
     forgetGate
   }
 
-  def buildOutputGate(): Sequential[T] = {
-    outputGate = buildGate()
+  def buildOutputGate()
+                     (input1: ModuleNode[T], input2: ModuleNode[T], input3: ModuleNode[T])
+  : ModuleNode[T] = {
+    outputGate =
+      buildGate(featDim, 1 + 3 * hiddenSize, hiddenSize)(input1, input2, input3)
     outputGate
   }
 
-  def buildHidden(): Sequential[T] = {
-    val hidden = Sequential()
-      .add(NarrowTable(1, 2))
+  def buildHidden()
+                 (input1: ModuleNode[T], input2: ModuleNode[T])
+  : ModuleNode[T] = {
 
-    val i2h = Sequential()
-      .add(Dropout(p))
-      .add(Linear(inputSize, hiddenSize, wRegularizer = wRegularizer,
-        bRegularizer = bRegularizer))
-    val h2h = Sequential()
-      .add(Dropout(p))
-      .add(Linear(hiddenSize, hiddenSize, withBias = false,
-        wRegularizer = uRegularizer))
+    /**
+     * f(input1 + W * input2)
+     */
+    var i2h: ModuleNode[T] = null
+    var h2h: ModuleNode[T] = null
+    if (p != 0) {
+      val input1Drop = Dropout(p).inputs(input1)
+      i2h = Linear(inputSize, hiddenSize, wRegularizer = wRegularizer,
+          bRegularizer = bRegularizer).inputs(input1Drop)
 
-    hidden
-      .add(ParallelTable()
-        .add(i2h)
-        .add(h2h))
-      .add(CAddTable())
-      .add(Tanh())
+      val input2Drop = Dropout(p).inputs(input2)
+      h2h = Linear(hiddenSize, hiddenSize, withBias = false,
+          wRegularizer = uRegularizer).inputs(input2Drop)
+    } else {
+      i2h = Narrow(featDim, 1 + 2 * hiddenSize, hiddenSize).inputs(input1)
+      h2h = Linear(hiddenSize, hiddenSize, withBias = false,
+        wRegularizer = uRegularizer).inputs(input2)
+    }
+    val cadd = CAddTable().inputs(i2h, h2h)
 
-    this.hiddenLayer = hidden
-    hidden
+    val tanh = Tanh().inputs(cadd)
+
+    this.hiddenLayer = tanh
+    tanh
   }
 
-  def buildCell(): Sequential[T] = {
-    buildInputGate()
-    buildForgetGate()
-    buildHidden()
+  def buildCell()
+               (input1: ModuleNode[T], input2: ModuleNode[T], input3: ModuleNode[T])
+  : ModuleNode[T] = {
+    buildInputGate()(input1, input2, input3)
+    buildForgetGate()(input1, input2, input3)
+    buildHidden()(input1, input2)
 
-    val forgetLayer = Sequential()
-      .add(ConcatTable()
-        .add(forgetGate)
-        .add(SelectTable(3)))
-      .add(CMulTable())
+    val forgetLayer = CMulTable().inputs(forgetGate, input3)
 
-    val inputLayer = Sequential()
-      .add(ConcatTable()
-        .add(inputGate)
-        .add(hiddenLayer))
-      .add(CMulTable())
+    val inputLayer = CMulTable().inputs(inputGate, hiddenLayer)
 
-    val cellLayer = Sequential()
-      .add(ConcatTable()
-        .add(forgetLayer)
-        .add(inputLayer))
-      .add(CAddTable())
+    val cellLayer = CAddTable().inputs(forgetLayer, inputLayer)
 
     this.cellLayer = cellLayer
     cellLayer
   }
 
-  def buildLSTM(): Sequential[T] = {
-    buildCell()
-    buildOutputGate()
+  def buildLSTM(): Graph[T] = {
+    val input1 = Input()
+    val input2 = Input()
+    val input3 = Input()
 
-    val LSTM = Sequential()
-      .add(FlattenTable())
-      .add(ConcatTable()
-        .add(NarrowTable(1, 2))
-        .add(cellLayer))
-      .add(FlattenTable())
-      .add(ConcatTable()
-        .add(Sequential()
-          .add(ConcatTable()
-            .add(outputGate)
-            .add(Sequential()
-              .add(SelectTable(3))
-              .add(Tanh())))
-          .add(CMulTable()))
-        .add(SelectTable(3)))
-      .add(ConcatTable()
-        .add(SelectTable(1))
-        .add(Identity()))
+    /**
+     * f: sigmoid
+     * g: tanh
+     * forgetLayer = input3 * f(input1 + U1 * input2)
+     * inputLayer = f(input1 + U2 * input2) * g(input1 + U3 * input2)
+     * cellLayer = forgetLayer + inputLayer
+     */
+    buildCell()(input1, input2, input3)
+    buildOutputGate()(input1, input2, cellLayer)
 
-    cell = LSTM
-    LSTM
+    val tanh = Tanh().inputs(cellLayer)
+    val cMul = CMulTable().inputs(outputGate, tanh)
+
+    val out1 = Identity().inputs(cMul)
+    val out2 = Identity().inputs(cMul)
+    val out3 = cellLayer
+
+    /**
+     * out1 = outputGate * g(cellLayer)
+     * out2 = out1
+     * out3 = cellLayer
+     */
+    Graph(Array(input1, input2, input3), Array(out1, out2, out3))
   }
 
   override def canEqual(other: Any): Boolean = other.isInstanceOf[LSTMPeephole[T]]
@@ -216,7 +249,8 @@ object LSTMPeephole {
     bRegularizer: Regularizer[T] = null
   )
     (implicit ev: TensorNumeric[T]): LSTMPeephole[T] = {
-    new LSTMPeephole[T](inputSize, hiddenSize, p, wRegularizer, uRegularizer, bRegularizer)
+    new LSTMPeephole[T](inputSize, hiddenSize, p, wRegularizer, uRegularizer,
+      bRegularizer)
   }
 }
 

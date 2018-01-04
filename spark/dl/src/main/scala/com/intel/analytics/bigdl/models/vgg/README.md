@@ -7,23 +7,22 @@ You can download CIFAR-10 dataset from [this webpage](https://www.cs.toronto.edu
 
 ## Get the JAR
 You can build one by refer to the
-[Build Page](https://github.com/intel-analytics/BigDL/wiki/Build-Page) from the source code.
+[Build Page](https://bigdl-project.github.io/master/#ScalaUserGuide/install-build-src/) from the source code.
 
 ## Train Model on Spark
 Example command for running in Spark cluster mode
 ```
-./dist/bin/bigdl.sh -- \
 spark-submit --master local[physical_core_number] \
 --class com.intel.analytics.bigdl.models.vgg.Train \
 dist/lib/bigdl-VERSION-jar-with-dependencies.jar \
 -f Cifar-folder \
 -b batch_size \
---checkpoint ~/model
+--summary ./log \
+--checkpoint ./model
 ```
 
 Standalone cluster mode, example command
 ```
-./dist/bin/bigdl.sh -- \
 spark-submit \
 --master spark://... \
 --executor-cores cores_per_executor \
@@ -32,11 +31,11 @@ spark-submit \
 dist/lib/bigdl-VERSION-jar-with-dependencies.jar \
 -f Cifar-folder \
 -b batchsize \
+--summary ./log \
 --checkpoint ./model
 ```
 Yarn cluster mode, example command
 ```
-./dist/bin/bigdl.sh -- \
 spark-submit \
 --master yarn \
 --deploy-mode client \
@@ -47,6 +46,7 @@ spark-submit \
 dist/lib/bigdl-VERSION-jar-with-dependencies.jar \
 -f Cifar-folder \
 -b batch_size \
+--summary ./log \
 --checkpoint ./model
 ```
 In the above commands
@@ -57,10 +57,10 @@ model.#iteration_number, and train state will be named as state.#iteration_numbe
 there are some files already exist in the folder, the old file will not be overwrite for the
 safety of your model files.
 * -b: The mini-batch size. It is expected that the mini-batch size is a multiple of node_number * core_number.
+* --summary: Where you store the training metainfo, which can be visualized in tensorboard
 ## Test Model
 Example command for running in Spark local mode
 ```
-./dist/bin/bigdl.sh -- \
 spark-submit --master local[physical_core_number] \
 --class com.intel.analytics.bigdl.models.vgg.Test \
 dist/lib/bigdl-VERSION-jar-with-dependencies.jar \
@@ -71,7 +71,6 @@ dist/lib/bigdl-VERSION-jar-with-dependencies.jar \
 
 Standalone cluster mode, example command
 ```
-./dist/bin/bigdl.sh -- \
 spark-submit \
 --master spark://... \
 --executor-cores cores_per_executor \
@@ -84,7 +83,6 @@ dist/lib/bigdl-VERSION-jar-with-dependencies.jar \
 ```
 Yarn cluster mode, example command
 ```
-./dist/bin/bigdl.sh -- \
 spark-submit \
 --master yarn \
 --deploy-mode client \

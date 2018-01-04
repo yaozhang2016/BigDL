@@ -15,7 +15,9 @@
  */
 package com.intel.analytics.bigdl.utils
 
-import com.intel.analytics.bigdl.Module
+import java.util
+
+import com.intel.analytics.bigdl.tensor.Tensor
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -30,15 +32,29 @@ import scala.collection.mutable.ArrayBuffer
  * @param reverse use the original direction or the reversed direction
  * @tparam T Node element type
  */
-class DirectedGraph[T](source : Node[T], reverse : Boolean = false) {
+@SerialVersionUID(- 6252604964316218479L)
+class DirectedGraph[T](val source : Node[T], val reverse : Boolean = false) extends Serializable {
+
+  /**
+   * How many nodes in the graph
+   * @return
+   */
+  def size : Int = BFS.size
+
+  /**
+   * How many edges in the graph
+   * @return
+   */
+  def edges : Int = BFS.map(_.nextNodes.length).reduce(_ + _)
 
   /**
    * Topology sort.
    * @return A sequence of sorted graph nodes
    */
   def topologySort : Array[Node[T]] = {
-    // Build indegree list
-    val inDegrees = new mutable.HashMap[Node[T], Int]()
+    // Build indegree list, LinkedHashMap can preserve the order of the keys, so it's good to
+    // write unittest.
+    val inDegrees = new mutable.LinkedHashMap[Node[T], Int]()
     inDegrees(source) = 0
     DFS.foreach(n => {
       val nextNodes = if (!reverse) n.nextNodes else n.prevNodes
@@ -48,10 +64,10 @@ class DirectedGraph[T](source : Node[T], reverse : Boolean = false) {
     })
 
     val result = new ArrayBuffer[Node[T]]()
-    while(!inDegrees.isEmpty) {
+    while(inDegrees.nonEmpty) {
       // toArray is not lazy eval, which is not affected by inDegrees - 1 operations below
       val startNodes = inDegrees.filterKeys(inDegrees(_) == 0).keySet.toArray
-      require(startNodes.size != 0, "There's a cycle in the graph")
+      require(startNodes.length != 0, "There's a cycle in the graph")
       result.appendAll(startNodes)
       startNodes.foreach(n => {
         val nextNodes = if (!reverse) n.nextNodes else n.prevNodes
@@ -80,7 +96,11 @@ class DirectedGraph[T](source : Node[T], reverse : Boolean = false) {
         val node = stack.pop()
         visited.add(node)
         val nextNodes = if (!reverse) node.nextNodes else node.prevNodes
-        nextNodes.filter(!visited.contains(_)).filter(!stack.contains(_)).foreach(stack.push(_))
+        // to preserve order
+        val nodesSet = mutable.LinkedHashSet[Node[T]]()
+        nextNodes.foreach(nodesSet.add)
+        nodesSet.filter(!visited.contains(_))
+          .filter(!stack.contains(_)).foreach(stack.push(_))
         node
       }
     }
@@ -104,12 +124,54 @@ class DirectedGraph[T](source : Node[T], reverse : Boolean = false) {
         val node = queue.dequeue()
         visited.add(node)
         val nextNodes = if (!reverse) node.nextNodes else node.prevNodes
-        nextNodes.filter(!visited.contains(_)).filter(!queue.contains(_)).foreach(queue.enqueue(_))
+        // to preserve order
+        val nodesSet = mutable.LinkedHashSet[Node[T]]()
+        nextNodes.foreach(nodesSet.add)
+        nodesSet.filter(!visited.contains(_))
+          .filter(!queue.contains(_)).foreach(queue.enqueue(_))
         node
       }
     }
   }
   // scalastyle:on methodName
+
+  /**
+   * Clone the graph structure, will not clone the node element
+   * @param reverseEdge if reverse the edge in the nodes
+   * @return
+   */
+  def cloneGraph(reverseEdge: Boolean = false): DirectedGraph[T] = {
+    val oldToNew = new util.HashMap[Node[T], Node[T]]()
+    val bfs = BFS.toArray
+    bfs.foreach(node => {
+      oldToNew.put(node, new Node[T](node.element))
+    })
+    // Keep the order in the nextNodes array and prevNodes array of the current node.
+    // As we go through all node in bfs from source, the prevNodes order can be preserved.
+    // For each node, we iterate and add their nextNodes, the nextNodes order can also be preserved.
+    bfs.foreach(node => {
+      if (reverseEdge) {
+        node.nextNodesAndEdges.foreach(nextNodeAndEdge => {
+          // Some next nodes may be not included in the graph
+          if (oldToNew.containsKey(nextNodeAndEdge._1)) {
+            oldToNew.get(nextNodeAndEdge._1).add(oldToNew.get(node), nextNodeAndEdge._2)
+          }
+        })
+      } else {
+        node.nextNodesAndEdges.foreach(nextNodeAndEdge => {
+          if (oldToNew.containsKey(nextNodeAndEdge._1)) {
+            oldToNew.get(node).add(oldToNew.get(nextNodeAndEdge._1), nextNodeAndEdge._2)
+          }
+        })
+      }
+    })
+
+    if (reverseEdge) {
+      new DirectedGraph[T](oldToNew.get(source), !reverse)
+    } else {
+      new DirectedGraph[T](oldToNew.get(source), reverse)
+    }
+  }
 }
 
 /**
@@ -117,18 +179,43 @@ class DirectedGraph[T](source : Node[T], reverse : Boolean = false) {
  * @param element element
  * @tparam T element type
  */
-class Node[T](val element: T) {
+@SerialVersionUID(- 6021651923538325999L)
+class Node[T](var element: T) extends Serializable {
   /**
    * The nodes pointed by current node
    * @return
    */
-  def nextNodes: Seq[Node[T]] = nexts
+  def nextNodes: Seq[Node[T]] = nexts.map(_._1)
 
   /**
-   * The nodes point to currect node
+   * The edges start from this node
    * @return
    */
-  def prevNodes: Seq[Node[T]] = prevs
+  def nextEdges: Seq[Edge] = nexts.map(_._2)
+
+  /**
+   * The nodes pointed by current node with the connect edges
+   * @return
+   */
+  def nextNodesAndEdges: Seq[(Node[T], Edge)] = nexts
+
+  /**
+   * The nodes point to current node
+   * @return
+   */
+  def prevNodes: Seq[Node[T]] = prevs.map(_._1)
+
+  /**
+   * The edges connect to this node
+   * @return
+   */
+  def prevEdges: Seq[Edge] = prevs.map(_._2)
+
+  /**
+   * The nodes pointed to current node with the connect edges
+   * @return
+   */
+  def prevNodesAndEdges: Seq[(Node[T], Edge)] = prevs
 
   // scalastyle:off methodName
   // scalastyle:off noSpaceBeforeLeftBracket
@@ -148,10 +235,78 @@ class Node[T](val element: T) {
    * @param node another node
    * @return another node
    */
-  def add(node: Node[T]): Node[T] = {
-    if (!node.prevs.contains(this)) node.prevs.append(this)
-    if (!this.nexts.contains(node)) this.nexts.append(node)
+  def add(node: Node[T], e: Edge = Edge()): Node[T] = {
+    if (!node.prevs.contains((this, e))) node.prevs.append((this, e))
+    if (!this.nexts.contains((node, e))) this.nexts.append((node, e))
     node
+  }
+
+  def from(node: Node[T], e: Edge = Edge()): Node[T] = {
+    if (!node.nexts.contains((this, e))) node.nexts.append((this, e))
+    if (!this.prevs.contains((node, e))) this.prevs.append((node, e))
+    node
+  }
+
+  /**
+   * Remove linkage with another node
+   *  @param node another node
+   *  @return current node
+   */
+  def delete(node: Node[T], e: Edge = null): Node[T] = {
+    if (e != null) {
+      if (node.prevs.contains((this, e))) node.prevs.-=((this, e))
+      if (this.nexts.contains((node, e))) this.nexts.-=((node, e))
+    } else {
+      val curNode = this  // Because of the closure
+      node.prevs.filter(_._1 == curNode).foreach(k => node.prevs.-=(k))
+      this.nexts.filter(_._1 == node).foreach(k => this.nexts.-=(k))
+    }
+    this
+  }
+
+  /**
+   * A sugar allows user to generate the pair (n, something) via n(something)
+   * @param meta
+   * @tparam M
+   * @return
+   */
+  def apply[M](meta: M): (this.type, M) = {
+    (this, meta)
+  }
+
+  /**
+   * remove edges that connect previous nodes
+   * @return current node
+   */
+  def removePrevEdges(): Node[T] = {
+    val curNode = this  // Because of the closure
+    prevs.map(_._1).foreach(pn =>
+      pn.nexts.filter(_._1 == curNode).foreach(e =>
+        pn.nexts -= e
+      )
+    )
+    prevs.clear()
+    this
+  }
+
+  /**
+   * remove edges that connect next nodes
+   * @return current node
+   */
+  def removeNextEdges(): Node[T] = {
+    val curNode = this  // Because of the closure
+    nexts.map(_._1).foreach(pn =>
+      pn.prevs.filter(_._1 == curNode).foreach(e =>
+        pn.prevs -= e
+      )
+    )
+    nexts.clear()
+    this
+  }
+
+  def setElement(e: T): this.type = {
+    element = e
+    this
   }
 
   /**
@@ -165,6 +320,36 @@ class Node[T](val element: T) {
 
   override def toString: String = s"(${element.toString})"
 
-  private val nexts = new ArrayBuffer[Node[T]]()
-  private val prevs = new ArrayBuffer[Node[T]]()
+  private val nexts = new ArrayBuffer[(Node[T], Edge)]()
+  private val prevs = new ArrayBuffer[(Node[T], Edge)]()
+}
+
+object Node {
+  def apply[T](element: T): Node[T] = new Node(element)
+}
+
+/**
+ * An edge in the graph
+ * @param fromIndex A preserved position to store meta info.
+ */
+private[bigdl] class Edge private (val fromIndex: Option[Int]) extends Serializable {
+  override def toString: String = {
+    s"Edge(fromIndex: $fromIndex)"
+  }
+
+  /**
+   * Create a new Instance of this Edge
+   * @return a new Instance of this Edge
+   */
+  def newInstance(): Edge = {
+    fromIndex match {
+      case Some(index) => Edge(index)
+      case None => Edge()
+    }
+  }
+}
+
+object Edge {
+  def apply(value : Int): Edge = new Edge(Some(value))
+  def apply(): Edge = new Edge(None)
 }

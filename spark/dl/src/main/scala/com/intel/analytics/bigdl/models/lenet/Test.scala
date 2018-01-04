@@ -30,7 +30,7 @@ object Test {
   Logger.getLogger("org").setLevel(Level.ERROR)
   Logger.getLogger("akka").setLevel(Level.ERROR)
   Logger.getLogger("breeze").setLevel(Level.ERROR)
-  Logger.getLogger("com.intel.analytics.bigdl.optim").setLevel(Level.INFO)
+
 
   import Utils._
 
@@ -56,6 +56,7 @@ object Test {
         Array(new Top1Accuracy[Float]), Some(param.batchSize))
 
       result.foreach(r => println(s"${r._2} is ${r._1}"))
+      sc.stop()
     }
   }
 }

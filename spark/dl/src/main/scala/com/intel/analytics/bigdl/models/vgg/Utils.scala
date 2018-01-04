@@ -37,9 +37,13 @@ object Utils {
     checkpoint: Option[String] = None,
     modelSnapshot: Option[String] = None,
     stateSnapshot: Option[String] = None,
+    summaryPath: Option[String] = None,
     batchSize: Int = 112,
     maxEpoch: Int = 90,
-    overWriteCheckpoint: Boolean = false
+    overWriteCheckpoint: Boolean = false,
+    learningRate: Double = 0.01,
+    weightDecay: Double = 0.0005,
+    graphModel: Boolean = false
   )
 
   val trainParser = new OptionParser[TrainParams]("BigDL Vgg on Cifar10 Example") {
@@ -55,6 +59,9 @@ object Utils {
     opt[String]("checkpoint")
       .text("where to cache the model and state")
       .action((x, c) => c.copy(checkpoint = Some(x)))
+    opt[String]("summary")
+      .text("where to store the training summary")
+      .action((x, c) => c.copy(summaryPath = Some(x)))
     opt[Int]('e', "maxEpoch")
       .text("epoch numbers")
       .action((x, c) => c.copy(maxEpoch = x))
@@ -64,6 +71,15 @@ object Utils {
     opt[Unit]("overWrite")
       .text("overwrite checkpoint files")
       .action( (_, c) => c.copy(overWriteCheckpoint = true) )
+    opt[Double]("weightDecay")
+      .text("weight decay")
+      .action((x, c) => c.copy(weightDecay = x))
+    opt[Double]('l', "learningRate")
+      .text("inital learning rate")
+      .action((x, c) => c.copy(learningRate = x))
+    opt[Unit]('g', "graphModel")
+      .text("use graph model")
+      .action((x, c) => c.copy(graphModel = true))
   }
 
   case class TestParams(

@@ -18,18 +18,12 @@ package com.intel.analytics.bigdl.torch
 
 import com.intel.analytics.bigdl.nn.{Power}
 import com.intel.analytics.bigdl.tensor.Tensor
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 @com.intel.analytics.bigdl.tags.Serial
-class PowerSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  "A Power(2)" should "generate correct output and grad" in {
-    val layer = new Power[Double](2)
+class PowerSpec extends TorchSpec {
+    "A Power(2)" should "generate correct output and grad" in {
+    torchCheck()
+    val layer = new Power[Double, Double](2)
     val input = Tensor[Double](2, 2, 2)
     input(Array(1, 1, 1)) = 1
     input(Array(1, 1, 2)) = 2
@@ -71,7 +65,8 @@ class PowerSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A Power(3)" should "generate correct output and grad" in {
-    val layer = new Power[Double](3)
+    torchCheck()
+    val layer = new Power[Double, Double](3)
     val input = Tensor[Double](2, 2, 2)
     input(Array(1, 1, 1)) = 1
     input(Array(1, 1, 2)) = 2

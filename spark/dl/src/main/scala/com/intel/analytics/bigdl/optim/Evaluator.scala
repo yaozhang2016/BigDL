@@ -17,7 +17,7 @@
 package com.intel.analytics.bigdl.optim
 
 import com.intel.analytics.bigdl._
-import com.intel.analytics.bigdl.dataset.{Sample, SampleToBatch}
+import com.intel.analytics.bigdl.dataset.{Sample, SampleToMiniBatch}
 import com.intel.analytics.bigdl.models.utils.ModelBroadcast
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import org.apache.spark.rdd.RDD
@@ -49,12 +49,12 @@ class Evaluator[T: ClassTag] private[optim](model: Module[T])(implicit ev: Tenso
    vMethods: Array[ValidationMethod[T]],
    batchSize: Option[Int] = None): Array[(ValidationResult, ValidationMethod[T])] = {
 
-    val modelBroad = ModelBroadcast[T].broadcast(dataset.sparkContext, model.evaluate())
+    val modelBroad = ModelBroadcast[T]().broadcast(dataset.sparkContext, model.evaluate())
     val partitionNum = dataset.partitions.length
 
     val totalBatch = batchSize.getOrElse(batchPerPartition * partitionNum)
-    val otherBroad = dataset.sparkContext.broadcast(vMethods, SampleToBatch(
-      batchSize = totalBatch, None, None, None, partitionNum = Some(partitionNum)))
+    val otherBroad = dataset.sparkContext.broadcast(vMethods, SampleToMiniBatch(
+      batchSize = totalBatch, partitionNum = Some(partitionNum)))
 
     dataset.mapPartitions(partition => {
       val localModel = modelBroad.value()
@@ -62,9 +62,9 @@ class Evaluator[T: ClassTag] private[optim](model: Module[T])(implicit ev: Tenso
       val localTransformer = otherBroad.value._2.cloneTransformer()
       val miniBatch = localTransformer(partition)
       miniBatch.map(batch => {
-        val output = localModel.forward(batch.data)
+        val output = localModel.forward(batch.getInput())
         localMethod.map(validation => {
-          validation(output, batch.labels)
+          validation(output, batch.getTarget())
         })
       })
     }).reduce((left, right) => {

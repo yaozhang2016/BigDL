@@ -16,11 +16,13 @@
 
 package com.intel.analytics.bigdl.nn
 
+import com.intel.analytics.bigdl.nn.Graph.ModuleNode
 import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.utils.Engine
 
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.Future
 import scala.reflect.ClassTag
 
@@ -61,6 +63,19 @@ class Concat[T: ClassTag](val dimension: Int)(
       if (i == 0) {
         this.size = currentOutput.size()
       } else {
+        require(this.size.length == currentOutput.size.length,
+        s"${this.modules(i).getName} output size mismatch, expected : ${this.size.length}," +
+          s"actual ${currentOutput.size.length}")
+        var index = 0
+        val ssize = this.size.length
+        while (index < ssize) {
+          if (index != dimension - 1) {
+            require(this.size(index) == currentOutput.size(index + 1),
+              s"${this.modules(i).getName} output size at dimension ${index + 1} mismatch," +
+                s"expected ${this.size(index)}, actual : ${currentOutput.size(index + 1)}")
+          }
+          index += 1
+        }
         this.size(this.dimension - 1) += currentOutput.size(this.dimension)
       }
       i += 1
@@ -79,14 +94,21 @@ class Concat[T: ClassTag](val dimension: Int)(
       results(i) = Engine.model.invoke(() => {
         val target = this.output.narrow(this.dimension, _offset,
           currentOutput.size(this.dimension))
-        var f = 1
-        while (f <= target.size(1)) {
-          val curFrame = target.select(1, f)
-          val outputFrame = currentOutput.select(1, f)
-          require(curFrame.isContiguous())
-          require(outputFrame.isContiguous())
-          curFrame.copy(outputFrame)
-          f += 1
+        if (target.isContiguous() || this.dimension > 2) {
+          // Copy directly when target is Contiguous or dimension is larger than 2
+          // in which case the contiguous region in target tensor is fairly small in practice
+          target.copy(currentOutput)
+        } else {
+          // Divide target into contiguous frames when target isn't contiguous
+          var f = 1
+          while (f <= target.size(1)) {
+            val curFrame = target.select(1, f)
+            val outputFrame = currentOutput.select(1, f)
+            require(curFrame.isContiguous())
+            require(outputFrame.isContiguous())
+            curFrame.copy(outputFrame)
+            f += 1
+          }
         }
       })
       i += 1
@@ -135,19 +157,13 @@ class Concat[T: ClassTag](val dimension: Int)(
       offset += currentOutput.size(dimension)
     }
     Engine.model.sync(results)
-    backwardTime += System.nanoTime() - before
 
-    this.gradInput.resizeAs(input)
-
-    offset = 1
     i = 0
+    offset = 1
     while (i < this.modules.length) {
       val currentOutput = this.modules(i).output.asInstanceOf[Tensor[T]]
       val currentGradInput = this.modules(i)
-        .updateGradInput(
-          input.asInstanceOf[Activity],
-          gradOutput.narrow(dimension, offset, currentOutput.size(dimension))
-            .asInstanceOf[Activity])
+        .updateGradInput(input.asInstanceOf[Activity], gradouts(i).asInstanceOf[Activity])
         .asInstanceOf[Tensor[T]]
 
       if (currentGradInput != null) {
@@ -166,8 +182,7 @@ class Concat[T: ClassTag](val dimension: Int)(
     this.gradInput
   }
 
-  override def accGradParameters(input: Tensor[T], gradOutput: Tensor[T],
-    scale: Double = 1.0): Unit = {
+  override def accGradParameters(input: Tensor[T], gradOutput: Tensor[T]): Unit = {
     var offset = 1
     var i = 0
     while (i < this.modules.length) {
@@ -175,7 +190,7 @@ class Concat[T: ClassTag](val dimension: Int)(
       this.modules(i).accGradParameters(
         input.asInstanceOf[Activity],
         gradOutput.narrow(dimension, offset, currentOutput.size(dimension))
-          .asInstanceOf[Activity], scale)
+          .asInstanceOf[Activity])
 
       i += 1
       offset += currentOutput.size(dimension)
@@ -305,7 +320,7 @@ class Concat[T: ClassTag](val dimension: Int)(
     val last = "   ... -> "
     val ext = "  |    "
     val extlast = "       "
-    s"nn.Concat {$line${tab}input$line${
+    s"${getPrintName}{$line${tab}input$line${
       modules.zipWithIndex
         .map { case (model: AbstractModule[Activity, Activity, T], index: Int)
         => s"$tab$next(${index + 1}): ${
@@ -324,6 +339,16 @@ class Concat[T: ClassTag](val dimension: Int)(
     forwardTimeOverhead = 0
     forwardTime = 0
     backwardTime = 0
+  }
+
+  override def getEndNodes(startNodes: Array[ModuleNode[T]]): Array[ModuleNode[T]] = {
+    val outputs = ArrayBuffer[ModuleNode[T]]()
+    var outputTuple: Array[ModuleNode[T]] = null
+    for (i <- 0 to modules.size - 1) {
+      outputTuple = modules(i).getEndNodes(startNodes)
+      outputs ++= outputTuple
+    }
+    Array(JoinTable(dimension, -1).inputs(outputs: _*))
   }
 }
 

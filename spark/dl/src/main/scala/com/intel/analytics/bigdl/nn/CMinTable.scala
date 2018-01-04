@@ -79,7 +79,7 @@ class CMinTable[T: ClassTag](implicit ev: TensorNumeric[T])
     gradInput
   }
 
-  override def canEqual(other: Any): Boolean = other.isInstanceOf[CMaxTable[T]]
+  override def canEqual(other: Any): Boolean = other.isInstanceOf[CMinTable[T]]
 
   override def equals(other: Any): Boolean = other match {
     case that: CMinTable[T] =>
@@ -93,11 +93,6 @@ class CMinTable[T: ClassTag](implicit ev: TensorNumeric[T])
     val state = Seq(super.hashCode())
     state.map(getHashCode).foldLeft(0)((a, b) => 31 * a + b)
   }
-
-  override def toString() : String = {
-    "nn.CMinTable"
-  }
-
 }
 
 object CMinTable {

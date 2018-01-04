@@ -19,23 +19,17 @@ import com.intel.analytics.bigdl.nn.ELU
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.utils.RandomGenerator
 import com.intel.analytics.bigdl.utils.RandomGenerator._
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 @com.intel.analytics.bigdl.tags.Serial
-class ELUSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  def random(): Double = RandomGenerator.RNG.normal(-10, 10)
+class ELUSpec extends TorchSpec {
+    def random(): Double = RandomGenerator.RNG.normal(-10, 10)
 
   "A ELU Module " should "generate correct output and grad not inplace" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
 
-    val module = new ELU[Double]()
+    val module = new ELU[Double, Double]()
     val input = Tensor[Double](2, 2, 2)
     input.apply1(x => random())
     val gradOutput = Tensor[Double](2, 2, 2)
@@ -64,10 +58,11 @@ class ELUSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A ELU Module " should "generate correct output and grad inplace" in {
+    torchCheck()
     val seed = 100
     RNG.setSeed(seed)
 
-    val module = new ELU[Double](10, false)
+    val module = new ELU[Double, Double](10, false)
     val input = Tensor[Double](2, 2, 2)
     input.apply1(x => random())
     val gradOutput = Tensor[Double](2, 2, 2)

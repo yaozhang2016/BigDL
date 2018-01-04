@@ -18,20 +18,14 @@ package com.intel.analytics.bigdl.torch
 
 import com.intel.analytics.bigdl.nn.Square
 import com.intel.analytics.bigdl.tensor.Tensor
-import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 import scala.util.Random
 
 @com.intel.analytics.bigdl.tags.Serial
-class SquareSpec extends FlatSpec with BeforeAndAfter with Matchers {
-  before {
-    if (!TH.hasTorch()) {
-      cancel("Torch is not installed")
-    }
-  }
-
-  "A Square 1D input" should "generate correct output and grad" in {
-    val layer = new Square[Double]()
+class SquareSpec extends TorchSpec {
+    "A Square 1D input" should "generate correct output and grad" in {
+    torchCheck()
+    val layer = new Square[Double, Double]()
     val input = Tensor[Double](10)
     input.apply1(_ => Random.nextDouble())
     val gradOutput = Tensor[Double](10)
@@ -59,7 +53,8 @@ class SquareSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A Square 2D input" should "generate correct output and grad" in {
-    val layer = new Square[Double]()
+    torchCheck()
+    val layer = new Square[Double, Double]()
     val input = Tensor[Double](3, 5)
     input.apply1(_ => Random.nextDouble())
     val gradOutput = Tensor[Double](3, 5)
@@ -87,7 +82,8 @@ class SquareSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A Square 3D input" should "generate correct output and grad" in {
-    val layer = new Square[Double]()
+    torchCheck()
+    val layer = new Square[Double, Double]()
     val input = Tensor[Double](4, 6, 6)
     input.apply1(_ => Random.nextDouble())
     val gradOutput = Tensor[Double](4, 6, 6)
@@ -115,7 +111,8 @@ class SquareSpec extends FlatSpec with BeforeAndAfter with Matchers {
   }
 
   "A Square 4D input" should "generate correct output and grad" in {
-    val layer = new Square[Double]()
+    torchCheck()
+    val layer = new Square[Double, Double]()
     val input = Tensor[Double](3, 5, 6, 6)
     input.apply1(_ => Random.nextDouble())
     val gradOutput = Tensor[Double](3, 5, 6, 6)

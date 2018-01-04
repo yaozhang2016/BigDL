@@ -19,37 +19,39 @@ package com.intel.analytics.bigdl.visualization.tensorboard
 import java.io.{File, FileOutputStream}
 
 import com.google.common.primitives.{Ints, Longs}
+import com.intel.analytics.bigdl.utils.Crc32
 import netty.Crc32c
+import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path}
 import org.tensorflow.util.Event
 
 /**
  * A writer to write event protobuf to file by tensorboard's format.
- * @param file
+ * @param file Support local path and HDFS path
  */
-private[bigdl] class RecordWriter(file: File) {
-  val outputStream = new FileOutputStream(file)
+private[bigdl] class RecordWriter(file: Path, fs: FileSystem) {
+  val outputStream = if (file.toString.startsWith("hdfs://")) {
+    // FSDataOutputStream couldn't flush data to localFileSystem in time. So reading summaries
+    // will throw exception.
+    fs.create(file, true, 1024)
+  } else {
+    // Using FileOutputStream when write to local.
+    new FileOutputStream(new File(file.toString))
+  }
   val crc32 = new Crc32c()
   def write(event: Event): Unit = {
     val eventString = event.toByteArray
     val header = Longs.toByteArray(eventString.length.toLong).reverse
     outputStream.write(header)
-    outputStream.write(Ints.toByteArray(maskedCRC32(header).toInt).reverse)
+    outputStream.write(Ints.toByteArray(Crc32.maskedCRC32(crc32, header).toInt).reverse)
     outputStream.write(eventString)
-    outputStream.write(Ints.toByteArray(maskedCRC32(eventString).toInt).reverse)
+    outputStream.write(Ints.toByteArray(Crc32.maskedCRC32(crc32, eventString).toInt).reverse)
+    if (outputStream.isInstanceOf[FSDataOutputStream]) {
+      // Flush data to HDFS.
+      outputStream.asInstanceOf[FSDataOutputStream].hflush()
+    }
   }
 
   def close(): Unit = {
     outputStream.close()
-  }
-
-  def maskedCRC32(data: Array[Byte]): Long = {
-    crc32.reset()
-    crc32.update(data, 0, data.length)
-    val x = u32(crc32.getValue)
-    u32(((x >> 15) | u32(x << 17)) + 0xa282ead8)
-  }
-
-  def u32(x: Long): Long = {
-    x & 0xffffffff
   }
 }

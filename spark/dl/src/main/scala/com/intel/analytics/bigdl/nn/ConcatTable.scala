@@ -16,11 +16,13 @@
 
 package com.intel.analytics.bigdl.nn
 
+import com.intel.analytics.bigdl.nn.Graph.ModuleNode
 import com.intel.analytics.bigdl.nn.abstractnn.Activity
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.utils.{T, Table}
 
+import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
 /**
@@ -34,12 +36,13 @@ import scala.reflect.ClassTag
 class ConcatTable[T : ClassTag]
   (implicit ev: TensorNumeric[T]) extends Container[Activity, Table, T] {
   override def updateOutput(input: Activity): Table = {
+    require(modules.length > 0, "empty modules of concat table")
     if (gradInput == null) {
       gradInput = allocateAs(input)
     }
     var i = 0
     while (i < modules.length) {
-      val currentOutput = modules(i).updateOutput(input)
+      val currentOutput = modules(i).forward(input)
       output.toTable(i + 1) = currentOutput
       i += 1
     }
@@ -55,7 +58,9 @@ class ConcatTable[T : ClassTag]
   private def addTable(out: Activity, in: Activity) : Unit = {
     if (in.isInstanceOf[Tensor[T]] && out.isInstanceOf[Tensor[T]]) {
       require(in.toTensor[T].nElement() == out.toTensor[T].nElement(),
-        "gradInput should have the same size")
+        "gradInput should have the same size" +
+          s"The sizes are ${in.toTensor[T].nElement()} " +
+          s"and ${out.toTensor[T].nElement()}")
       out.toTensor[T].add(in.toTensor[T])
     } else {
       var i = 1
@@ -106,6 +111,7 @@ class ConcatTable[T : ClassTag]
   }
 
   override def updateGradInput(input: Activity, gradOutput: Table): Activity = {
+    require(modules.length > 0, "empty modules of concat table")
     val isInputTable = input.isInstanceOf[Table]
     val wasGradInputTable = gradInput.isInstanceOf[Table]
 
@@ -151,13 +157,68 @@ class ConcatTable[T : ClassTag]
     gradInput
   }
 
-  override def accGradParameters(input: Activity, gradOutput: Table,
-    scale: Double = 1.0): Unit = {
+  override def backward(input: Activity, gradOutput: Table): Activity = {
+    require(modules.length > 0, "empty modules of concat table")
+    val isInputTable = input.isInstanceOf[Table]
+    val wasGradInputTable = gradInput.isInstanceOf[Table]
+
+    if (isInputTable) {
+      var i = 0
+      while (i < modules.length) {
+        val currentGradInput = modules(i).backward(input,
+          gradOutput.toTable(i + 1))
+        require(currentGradInput.isInstanceOf[Table],
+          "currentGradInput is not a table!")
+        if (i == 0) {
+          if (!wasGradInputTable ||
+            gradInput.toTable.length() != currentGradInput.toTable.length()) {
+            // We need deep copy here.
+            gradInput = cloneTable(currentGradInput)
+          } else {
+            copyTable(gradInput, currentGradInput)
+          }
+        } else {
+          addTable(gradInput, currentGradInput)
+        }
+        i += 1
+      }
+
+    } else {
+      var i = 0
+      while (i < modules.length) {
+        val currentGradInput = modules(i).backward(input,
+          gradOutput.toTable(i + 1)).toTensor[T]
+        if (i == 0) {
+          if (wasGradInputTable) {
+            gradInput = currentGradInput.clone()
+          } else {
+            gradInput.toTensor[T].resizeAs(
+              currentGradInput).copy(currentGradInput)
+          }
+        } else {
+          gradInput.toTensor[T].add(currentGradInput)
+        }
+        i += 1
+      }
+    }
+    gradInput
+  }
+
+  override def accGradParameters(input: Activity, gradOutput: Table): Unit = {
     var i = 0
     while (i < modules.length) {
-      modules(i).accGradParameters(input, gradOutput.toTable(i + 1), scale)
+      modules(i).accGradParameters(input, gradOutput.toTable(i + 1))
       i += 1
     }
+  }
+
+  override def clearState(): ConcatTable.this.type = {
+    super.clearState()
+    modules.foreach(_.clearState())
+    if (gradInput.isInstanceOf[Table]) {
+      gradInput.toTable.clear()
+    }
+    this
   }
 
   override def toString(): String = {
@@ -168,7 +229,7 @@ class ConcatTable[T : ClassTag]
     val ext = "  |    "
     val extlast = "       "
     val last = "   ... -> "
-    var str = "nn.ConcatTable"
+    var str = s"${getPrintName}"
     str = str + " {" + line + tab + "input"
     var i = 1
     while (i <= modules.length) {
@@ -184,6 +245,16 @@ class ConcatTable[T : ClassTag]
     str = str + line + tab + last + "output"
     str = str + line + "}"
     str
+  }
+
+  override def getEndNodes(startNodes: Array[ModuleNode[T]]): Array[ModuleNode[T]] = {
+    val outputs = ArrayBuffer[ModuleNode[T]]()
+    var outputTuple: Array[ModuleNode[T]] = null
+    for (i <- 0 to modules.size - 1) {
+      outputTuple = modules(i).getEndNodes(startNodes)
+      outputs ++= outputTuple
+    }
+    outputs.toArray
   }
 }
 
